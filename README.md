@@ -2,7 +2,7 @@
 
 编号递增的数学草稿纸归档，按月打包为 zip 发布，浏览器端按需下载、即时预览。
 
-- 在线地址：<https://volatile-quartz.github.io/calculations/>
+- 在线地址：<https://volatile-quartz.github.io/scratch-paper-archive/>
 - 交互：缩略图网格（虚拟滚动）· 编号定位 · 编号段范围浏览（跨包自动串联）· 点击放大 · 翻页 / 拖动 / 滚轮缩放 / 旋转
 
 ## 架构
@@ -28,7 +28,7 @@
 1. **发布草稿纸**：在本仓库发 Release 并上传 zip，命名 `calculations-YYYY-MM.zip`
 2. **更新索引**：Actions → Sync Index → Run workflow
    （发布新 Release 时也会自动触发；编号区间靠扫描 zip 中央目录得到，无需解压）
-3. **访问**：<https://volatile-quartz.github.io/calculations/>
+3. **访问**：<https://volatile-quartz.github.io/scratch-paper-archive/>
 
 ## 部署 Cloudflare Worker
 
@@ -42,7 +42,7 @@
    不配置也能运行，但匿名调用 GitHub API 限 60 次/小时，容易被限流
 5. 记下分配到的地址：`https://<Worker名>.<账号子域>.workers.dev`
 6. **验证**：浏览器打开
-   `https://<地址>/zip/volatile-Quartz/calculations/<asset_id>`
+   `https://<地址>/zip/volatile-Quartz/scratch-paper-archive/<asset_id>`
    能看到 zip 开始下载，即代理工作正常（`asset_id` 见 `index.json`）
 7. 把地址填入 `index.html` 顶部的 `WORKER_URL` 常量并提交
 

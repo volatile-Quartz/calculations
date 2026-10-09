@@ -9,7 +9,7 @@ export default {
     const path = url.pathname.replace(/^\/+/, '');
 
     // 路由：/zip/{repo}/{asset_id_or_name}
-    // 示例：/zip/volatile-Quartz/calculations/597809277
+    // 示例：/zip/volatile-Quartz/scratch-paper-archive/597809277
     const parts = path.split('/');
     if (parts[0] !== 'zip' || parts.length < 4) {
       return new Response('Usage: /zip/{owner}/{repo}/{asset_id}\n  or  /meta/{owner}/{repo}', { status: 400 });
