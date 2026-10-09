@@ -317,9 +317,13 @@ function populateZips() {
   for (const z of sorted) {
     const opt = document.createElement('option');
     const rng = z.range ? `No.${z.range[0]}–${z.range[1]}` : '编号未知';
-    const cnt = (z.count != null) ? `${z.count}张` : '张数未知';
+    let prefix = z.label || '';
+    if (prefix === rng) prefix = '';        // label 与 rng 相同时不重复展示
+    const mm = z.zip_name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])/);
+    if (mm) prefix = `${mm[1]}-${mm[2]}`;   // 优先显示年月，比纯编号直观
+    const cnt = (z.count != null) ? `${z.count} 张` : '张数未知';
     opt.value = z.zip_name;
-    opt.textContent = `${z.label} · ${cnt} · ${rng} · ${z.size_mb}MB`;
+    opt.textContent = [prefix, rng, cnt, `${z.size_mb}MB`].filter(Boolean).join(' · ');
     sel.appendChild(opt);
   }
   CURRENT_ZIP = sorted[0];
@@ -334,7 +338,7 @@ function populateZips() {
   const ji = document.getElementById('jump-input');
   if (INDEX.range_min != null && INDEX.range_max != null) {
     const mid = Math.round((INDEX.range_min + INDEX.range_max) / 2);
-    ji.placeholder = `如 ${mid} 或 编号段`;
+    ji.placeholder = `如 ${mid} 或 ${mid}-${mid + 100}`;
   }
 }
 
@@ -384,7 +388,12 @@ async function loadZip(z) {
   const url = getZipUrl(z);
   if (!url) throw new Error('缺少下载地址');
 
-  const resp = await fetch(url);
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (e) {
+    throw new Error(`无法连接下载源${WORKER_URL ? '（Worker 代理）' : ''}：${e.message}`);
+  }
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const len = parseInt(resp.headers.get('content-length') || '0', 10);
   if (len) LOAD.curTotal = len;
