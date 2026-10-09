@@ -1,0 +1,92 @@
+name: Sync Index
+
+# 扫描本仓库的 GitHub Releases，生成 index.json（前端 viewer 用）
+# 触发：手动 dispatch 或发布新 Release 时
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Generate index.json
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ github.repository }}
+      run: |
+        python3 - << 'PYEOF'
+        import json, os, re, subprocess, time, urllib.request
+
+        REPO = os.environ["REPO"]
+        TOKEN = os.environ.get("GH_TOKEN", "")
+        UA = "calc-index-gen/1.0"
+
+        def gh_get(url):
+            headers = {"Accept": "application/vnd.github+json", "User-Agent": UA}
+            if TOKEN: headers["Authorization"] = f"Bearer {TOKEN}"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req) as r:
+                return json.loads(r.read())
+
+        print(f"🔍 Fetching releases for {REPO}...")
+        releases = gh_get(f"https://api.github.com/repos/{REPO}/releases?per_page=50")
+
+        zips = []
+        for rel in releases:
+            for asset in rel["assets"]:
+                if not asset["name"].endswith(".zip"): continue
+                # 从文件名推断编号范围（快速但不精确，精确需要解压）
+                # 命名建议：calculations-2025-01.zip（有月份）
+                match = re.search(r'(\d{4})[-_](\d{2})', asset["name"])
+                year = match.group(1) if match else rel["tag_name"]
+                month = match.group(2) if match else "?"
+
+                zip_info = {
+                    "zip_name": asset["name"],
+                    "asset_id": str(asset["id"]),
+                    "size_mb": round(asset["size"] / 1024 / 1024, 1),
+                    "uploaded": asset["updated_at"],
+                    "label": f"{year}年{month}月" if match else asset["name"],
+                    "browser_url": asset["browser_download_url"],
+                    # range 和 count 留 null，下次可以写 Action 自动解压扫描编号
+                    "range": [0, 0],
+                    "count": 0,
+                }
+                zips.append(zip_info)
+                print(f"  {zip_info['label']}: {asset['name']} ({zip_info['size_mb']} MB)")
+
+        # 按标签名/文件名排序（倒序：最新在前）
+        zips.sort(key=lambda z: z["zip_name"], reverse=True)
+
+        index = {
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "repo": REPO,
+            "zips": zips,
+        }
+
+        with open("index.json", "w") as f:
+            json.dump(index, f, indent=2, ensure_ascii=False)
+        print(f"✅ index.json 生成完成，共 {len(zips)} 个 zip")
+        PYEOF
+
+    - name: Commit
+      run: |
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git add index.json
+        if git diff --staged --quiet; then
+          echo "No changes."
+          exit 0
+        fi
+        git commit -m "chore: update index.json"
+        git push

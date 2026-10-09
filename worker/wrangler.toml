@@ -1,0 +1,11 @@
+name = "calc-viewer-worker"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# 部署后访问 URL 形如：
+#   https://calc-viewer-worker.<YOUR-SUBDOMAIN>.workers.dev/zip/{owner}/{repo}/{asset_id}
+# 然后把这个 URL 填到 index.html 的 WORKER_URL 常量
+
+# secrets（部署时设置一次就行）：
+#   wrangler secret put GITHUB_TOKEN
+#   粘贴一个有 public_repo 权限的 GitHub token
