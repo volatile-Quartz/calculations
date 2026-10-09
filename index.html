@@ -133,12 +133,25 @@
     display: none; align-items: center; justify-content: center;
   }
   #lightbox.show { display: flex; }
+  #lb-stage {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
   #lightbox img {
     max-width: 90vw; max-height: 85vh;
-    transition: transform 0.2s ease;
+    transition: transform 0.2s ease, opacity 0.2s ease;
     cursor: zoom-in; user-select: none; -webkit-user-drag: none;
     object-fit: contain;
   }
+  #lightbox img.slide-out-left { animation: slideOutLeft 0.25s ease forwards; }
+  #lightbox img.slide-out-right { animation: slideOutRight 0.25s ease forwards; }
+  #lightbox img.slide-in-left { animation: slideInLeft 0.25s ease forwards; }
+  #lightbox img.slide-in-right { animation: slideInRight 0.25s ease forwards; }
+  @keyframes slideOutLeft { to { transform: translateX(-100vw); opacity: 0; } }
+  @keyframes slideOutRight { to { transform: translateX(100vw); opacity: 0; } }
+  @keyframes slideInLeft { from { transform: translateX(-100vw); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes slideInRight { from { transform: translateX(100vw); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   #lightbox img.zoomed { cursor: grab; }
   #lightbox img.zoomed:active { cursor: grabbing; }
 
@@ -230,7 +243,7 @@
   <button class="lb-close" onclick="closeLightbox()" title="关闭 (ESC)">✕</button>
   <button class="lb-nav lb-prev" onclick="lbPrev()" title="上一张 (←)">‹</button>
   <button class="lb-nav lb-next" onclick="lbNext()" title="下一张 (→)">›</button>
-  <div class="lb-hint">← → 翻页 · ESC 关闭 · 滚轮缩放</div>
+  <div class="lb-hint">← → 翻页 · ESC 关闭 · 滚轮缩放 · 拖动平移</div>
   <div class="lb-toolbar">
     <button onclick="lbZoom(-0.15)" title="缩小">−</button>
     <button onclick="lbZoom(0.15)" title="放大">+</button>
@@ -239,7 +252,9 @@
     <button onclick="lbRotate(90)" title="向右旋转">↻</button>
     <span class="info" id="lb-info"></span>
   </div>
-  <img id="lb-img" src="" alt="">
+  <div id="lb-stage">
+    <img id="lb-img" src="" alt="">
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -465,8 +480,26 @@ function updateLB() {
     `No.${extractNum(cur.filename)} (${LB_IDX+1}/${LB_IMAGES.length}) · ${(LB_SCALE*100).toFixed(0)}%`;
 }
 
-function lbPrev() { if (LB_IDX > 0) { openLightbox(LB_IDX - 1); } }
-function lbNext() { if (LB_IDX < LB_IMAGES.length - 1) { openLightbox(LB_IDX + 1); } }
+function lbPrev() {
+  if (LB_IDX <= 0) return;
+  const img = document.getElementById('lb-img');
+  img.classList.remove('slide-in-left','slide-in-right','slide-out-left','slide-out-right');
+  img.classList.add('slide-out-left');
+  setTimeout(() => {
+    openLightbox(LB_IDX - 1);
+    img.classList.add('slide-in-left');
+  }, 220);
+}
+function lbNext() {
+  if (LB_IDX >= LB_IMAGES.length - 1) return;
+  const img = document.getElementById('lb-img');
+  img.classList.remove('slide-in-left','slide-in-right','slide-out-left','slide-out-right');
+  img.classList.add('slide-out-right');
+  setTimeout(() => {
+    openLightbox(LB_IDX + 1);
+    img.classList.add('slide-in-right');
+  }, 220);
+}
 
 function lbZoom(delta) {
   const base = LB_FIT_SCALE;
@@ -531,8 +564,10 @@ document.getElementById('lightbox').addEventListener('click', (e) => {
   if (e.target.id === 'lightbox') closeLightbox();
 });
 // 点击图片：适应窗口 ↔ 放大
+// 点击图片切换缩放（拖动后不触发）
 document.getElementById('lb-img').addEventListener('click', (e) => {
   e.stopPropagation();
+  if (DRAG.moved) { DRAG.moved = false; return; }
   toggleZoom();
 });
 
