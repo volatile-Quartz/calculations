@@ -1,136 +1,21 @@
 {
-  "generated_at": "2026-10-09T09:42:43Z",
+  "generated_at": "2026-10-09T11:19:30Z",
   "repo": "volatile-Quartz/Dr_Wunderkammer",
+  "range_min": 7135,
+  "range_max": 8542,
   "zips": [
     {
-      "zip_name": "calculations-project-2025-12.zip",
-      "asset_id": "597813184",
-      "size_mb": 104.0,
-      "uploaded": "2026-09-29T09:28:49Z",
-      "label": "2025年12月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-12.zip",
+      "zip_name": "calculations-project-2025-01.zip",
+      "asset_id": "597809277",
+      "size_mb": 17.1,
+      "uploaded": "2026-09-29T09:26:41Z",
+      "label": "2025年01月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-01.zip",
+      "count": 15,
       "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-11.zip",
-      "asset_id": "597812609",
-      "size_mb": 180.3,
-      "uploaded": "2026-09-29T09:28:35Z",
-      "label": "2025年11月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-11.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-10.zip",
-      "asset_id": "597812142",
-      "size_mb": 111.9,
-      "uploaded": "2026-09-29T09:28:12Z",
-      "label": "2025年10月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-10.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-09.zip",
-      "asset_id": "597811998",
-      "size_mb": 36.8,
-      "uploaded": "2026-09-29T09:28:02Z",
-      "label": "2025年09月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-09.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-08.zip",
-      "asset_id": "597811596",
-      "size_mb": 128.2,
-      "uploaded": "2026-09-29T09:27:58Z",
-      "label": "2025年08月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-08.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-07.zip",
-      "asset_id": "597811042",
-      "size_mb": 145.7,
-      "uploaded": "2026-09-29T09:27:42Z",
-      "label": "2025年07月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-07.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-06.zip",
-      "asset_id": "597810741",
-      "size_mb": 126.7,
-      "uploaded": "2026-09-29T09:27:30Z",
-      "label": "2025年06月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-06.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-05.zip",
-      "asset_id": "597810591",
-      "size_mb": 38.5,
-      "uploaded": "2026-09-29T09:27:19Z",
-      "label": "2025年05月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-05.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-04.zip",
-      "asset_id": "597810322",
-      "size_mb": 93.4,
-      "uploaded": "2026-09-29T09:27:15Z",
-      "label": "2025年04月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-04.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
-    },
-    {
-      "zip_name": "calculations-project-2025-03.zip",
-      "asset_id": "597809643",
-      "size_mb": 133.3,
-      "uploaded": "2026-09-29T09:27:01Z",
-      "label": "2025年03月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-03.zip",
-      "range": [
-        0,
-        0
-      ],
-      "count": 0
+        7135,
+        7149
+      ]
     },
     {
       "zip_name": "calculations-project-2025-02.zip",
@@ -139,24 +24,142 @@
       "uploaded": "2026-09-29T09:26:48Z",
       "label": "2025年02月",
       "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-02.zip",
+      "count": 17,
       "range": [
-        0,
-        0
-      ],
-      "count": 0
+        7150,
+        7166
+      ]
     },
     {
-      "zip_name": "calculations-project-2025-01.zip",
-      "asset_id": "597809277",
-      "size_mb": 17.1,
-      "uploaded": "2026-09-29T09:26:41Z",
-      "label": "2025年01月",
-      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-01.zip",
+      "zip_name": "calculations-project-2025-03.zip",
+      "asset_id": "597809643",
+      "size_mb": 133.3,
+      "uploaded": "2026-09-29T09:27:01Z",
+      "label": "2025年03月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-03.zip",
+      "count": 102,
       "range": [
-        0,
-        0
-      ],
-      "count": 0
+        7167,
+        7268
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-04.zip",
+      "asset_id": "597810322",
+      "size_mb": 93.4,
+      "uploaded": "2026-09-29T09:27:15Z",
+      "label": "2025年04月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-04.zip",
+      "count": 54,
+      "range": [
+        7269,
+        7322
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-05.zip",
+      "asset_id": "597810591",
+      "size_mb": 38.5,
+      "uploaded": "2026-09-29T09:27:19Z",
+      "label": "2025年05月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-05.zip",
+      "count": 31,
+      "range": [
+        7323,
+        7353
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-06.zip",
+      "asset_id": "597810741",
+      "size_mb": 126.7,
+      "uploaded": "2026-09-29T09:27:30Z",
+      "label": "2025年06月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-06.zip",
+      "count": 82,
+      "range": [
+        7354,
+        7435
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-07.zip",
+      "asset_id": "597811042",
+      "size_mb": 145.7,
+      "uploaded": "2026-09-29T09:27:42Z",
+      "label": "2025年07月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-07.zip",
+      "count": 148,
+      "range": [
+        7436,
+        7583
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-08.zip",
+      "asset_id": "597811596",
+      "size_mb": 128.2,
+      "uploaded": "2026-09-29T09:27:58Z",
+      "label": "2025年08月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-08.zip",
+      "count": 156,
+      "range": [
+        7584,
+        7739
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-09.zip",
+      "asset_id": "597811998",
+      "size_mb": 36.8,
+      "uploaded": "2026-09-29T09:28:02Z",
+      "label": "2025年09月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-09.zip",
+      "count": 61,
+      "range": [
+        7740,
+        7800
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-10.zip",
+      "asset_id": "597812142",
+      "size_mb": 111.9,
+      "uploaded": "2026-09-29T09:28:12Z",
+      "label": "2025年10月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-10.zip",
+      "count": 207,
+      "range": [
+        7801,
+        8007
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-11.zip",
+      "asset_id": "597812609",
+      "size_mb": 180.3,
+      "uploaded": "2026-09-29T09:28:35Z",
+      "label": "2025年11月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-11.zip",
+      "count": 341,
+      "range": [
+        8008,
+        8348
+      ]
+    },
+    {
+      "zip_name": "calculations-project-2025-12.zip",
+      "asset_id": "597813184",
+      "size_mb": 104.0,
+      "uploaded": "2026-09-29T09:28:49Z",
+      "label": "2025年12月",
+      "browser_url": "https://github.com/volatile-Quartz/Dr_Wunderkammer/releases/download/calculations-2025/calculations-project-2025-12.zip",
+      "count": 194,
+      "range": [
+        8349,
+        8542
+      ]
     }
-  ]
+  ],
+  "_note": "zip 按月命名，文件名即编号。viewer 用 range 做编号跳转。"
 }

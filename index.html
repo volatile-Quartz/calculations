@@ -3,312 +3,509 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>草稿纸查看器</title>
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<title>📐 草稿纸查看器</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js">
 <style>
+  :root {
+    --bg: #0f1115;
+    --bg-soft: #171923;
+    --card: #1e2030;
+    --border: #2a2d40;
+    --text: #e6e7ef;
+    --text-dim: #8a8e9f;
+    --accent: #4f8cff;
+    --accent-hover: #6fa2ff;
+    --green: #34d399;
+    --red: #f87171;
+    --radius: 12px;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-         background: #f6f8fa; color: #1f2328; }
-  header { background: #fff; border-bottom: 1px solid #d0d7de; padding: 14px 24px;
-           position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-  .header-row { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  h1 { margin: 0; font-size: 1.15em; white-space: nowrap; }
-  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  select, input, button { padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px;
-                          font-size: 13px; background: #fff; font-family: inherit; }
-  button { background: #0969da; color: #fff; cursor: pointer; border-color: #0969da; }
-  button:hover { background: #0550ae; }
-  button:disabled { background: #9198a1; border-color: #9198a1; cursor: not-allowed; }
-  input[type="number"] { width: 85px; }
-  .stat { color: #57606a; font-size: 12px; white-space: nowrap; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
 
-  main { max-width: 1200px; margin: 20px auto; padding: 0 24px; }
+  /* 顶部通知条 */
+  #toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--green); color: #0f1115; font-weight: 600;
+    padding: 12px 28px; border-radius: 50px; z-index: 999;
+    box-shadow: 0 8px 30px rgba(52,211,153,0.3);
+    opacity: 0; transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+  #toast.error { background: var(--red); color: white; }
 
-  .download-bar { background: #fff; border: 1px solid #d0d7de; border-radius: 8px;
-                  padding: 14px; margin-bottom: 16px; display: flex; align-items: center;
-                  gap: 14px; flex-wrap: wrap; }
-  .download-info { flex: 1; }
-  .progress-wrap { flex: 0 0 200px; height: 8px; background: #eaeef2; border-radius: 4px; overflow: hidden; }
-  .progress-bar { height: 100%; background: #0969da; width: 0%; transition: width .2s; }
+  /* 主容器 */
+  .app {
+    max-width: 1400px; margin: 0 auto; padding: 40px 24px 80px;
+  }
+  h1 {
+    margin: 0 0 6px; font-size: 28px; font-weight: 700;
+    background: linear-gradient(135deg, #4f8cff, #a78bfa);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .subtitle { color: var(--text-dim); margin-bottom: 32px; font-size: 14px; }
 
-  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-             gap: 10px; }
-  .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px;
-          overflow: hidden; cursor: zoom-in; transition: transform .15s, box-shadow .15s; }
-  .card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
-  .card img { width: 100%; aspect-ratio: 1/1; object-fit: contain; background: #fafbfc; }
-  .card .no { padding: 4px; font-size: 12px; font-weight: 600; text-align: center;
-              border-top: 1px solid #d0d7de; background: #f6f8fa; }
+  /* 控制面板 */
+  .control {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 24px; margin-bottom: 24px;
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+  }
+  .ctrl-group { display: flex; flex-direction: column; gap: 4px; }
+  .ctrl-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  select, input[type=number] {
+    background: var(--bg-soft); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; font-size: 14px; font-family: inherit;
+    min-width: 180px; outline: none; transition: border 0.15s;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+  input[type=number] { width: 120px; }
 
-  .status-msg { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px;
-                padding: 12px 16px; margin-bottom: 12px; font-size: 13px; }
-  .status-ok { background: #dafbe1; border-color: #2da44e; }
-  .status-err { background: #ffebe9; border-color: #cf222e; }
+  .btn {
+    background: var(--accent); color: white; border: none;
+    border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s, transform 0.1s;
+    font-family: inherit;
+  }
+  .btn:hover { background: var(--accent-hover); }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { background: var(--bg-soft); border: 1px solid var(--border); color: var(--text); }
+  .btn-secondary:hover { background: var(--border); }
 
-  #overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.92);
-             z-index: 200; align-items: center; justify-content: center; cursor: zoom-out; }
-  #overlay.active { display: flex; }
-  #viewer-img { max-width: 92vw; max-height: 92vh; object-fit: contain; }
-  .viewer-nav { position: absolute; top: 50%; transform: translateY(-50%);
-                background: rgba(255,255,255,.15); border: none; color: #fff; font-size: 26px;
-                padding: 20px; cursor: pointer; border-radius: 50%; }
-  .viewer-nav:hover { background: rgba(255,255,255,.3); }
-  .viewer-prev { left: 20px; }
-  .viewer-next { right: 20px; }
-  .viewer-info { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-                 color: #fff; background: rgba(0,0,0,.6); padding: 5px 12px; border-radius: 14px; font-size: 12px; }
-  .viewer-close { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,.15);
-                  border: none; color: #fff; font-size: 18px; padding: 6px 12px;
-                  cursor: pointer; border-radius: 50%; }
+  /* 下载进度条 */
+  #progress-wrap {
+    background: var(--bg-soft); border-radius: 8px; padding: 10px 14px;
+    display: none; align-items: center; gap: 12px; flex: 1; min-width: 280px;
+  }
+  #progress-wrap.show { display: flex; }
+  #progress-bar {
+    flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;
+  }
+  #progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.15s; }
+  #progress-text { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+
+  /* 图片网格 */
+  #grid-info {
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--text-dim); font-size: 13px; margin-bottom: 12px;
+  }
+  #grid-info strong { color: var(--text); }
+
+  #grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+  .thumb {
+    aspect-ratio: 3/4; background: var(--card);
+    border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; cursor: zoom-in;
+    position: relative; transition: transform 0.15s, border-color 0.15s;
+  }
+  .thumb:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .thumb img {
+    width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .thumb.loaded img { opacity: 1; }
+  .thumb .num {
+    position: absolute; bottom: 8px; left: 8px;
+    background: rgba(0,0,0,0.6); color: white; font-size: 12px; font-weight: 600;
+    padding: 3px 8px; border-radius: 5px; backdrop-filter: blur(4px);
+  }
+  .thumb .placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 12px;
+  }
+
+  /* 放大层 */
+  #lightbox {
+    position: fixed; inset: 0; background: rgba(8, 10, 16, 0.95);
+    backdrop-filter: blur(8px); z-index: 100;
+    display: none; align-items: center; justify-content: center;
+  }
+  #lightbox.show { display: flex; }
+  #lightbox img {
+    max-width: none; transition: transform 0.15s;
+    cursor: zoom-in; user-select: none; -webkit-user-drag: none;
+  }
+  #lightbox img.zoomed { cursor: grab; }
+  #lightbox img.zoomed:active { cursor: grabbing; }
+
+  .lb-close {
+    position: absolute; top: 24px; right: 24px;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(255,255,255,0.1); color: white; border: none;
+    font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .lb-close:hover { background: rgba(255,255,255,0.2); }
+
+  .lb-nav {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    width: 52px; height: 52px; border-radius: 50%;
+    background: rgba(255,255,255,0.08); color: white; border: none;
+    font-size: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .lb-nav:hover { background: rgba(255,255,255,0.2); }
+  .lb-prev { left: 24px; }
+  .lb-next { right: 24px; }
+
+  .lb-toolbar {
+    position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; background: rgba(0,0,0,0.5);
+    padding: 8px 14px; border-radius: 50px; backdrop-filter: blur(10px);
+  }
+  .lb-toolbar button {
+    background: transparent; color: white; border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 50%; width: 40px; height: 40px; font-size: 16px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .lb-toolbar button:hover { background: rgba(255,255,255,0.15); }
+  .lb-toolbar .info {
+    color: white; font-size: 12px; padding: 0 12px; align-self: center;
+    white-space: nowrap;
+  }
+
+  .lb-hint {
+    position: absolute; top: 24px; left: 24px;
+    color: rgba(255,255,255,0.5); font-size: 12px; line-height: 1.6;
+  }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="header-row">
-    <h1>📐 草稿纸查看器</h1>
-    <div class="controls">
-      <select id="zip-select" disabled><option value="">加载索引...</option></select>
-      <span class="stat" id="zip-info"></span>
-      <input type="number" id="goto-input" placeholder="编号" disabled>
-      <button id="goto-btn" disabled>跳转</button>
+<div class="app">
+  <h1>📐 草稿纸查看器</h1>
+  <div class="subtitle">按月选择 · 按需下载 · 高清查看 · No.7135 - No.8542 · 共 1408 张</div>
+
+  <!-- 控制面板 -->
+  <div class="control">
+    <div class="ctrl-group">
+      <div class="ctrl-label">月份</div>
+      <select id="zip-select"></select>
+    </div>
+    <button id="dl-btn" class="btn">📥 下载并查看</button>
+    <div id="progress-wrap">
+      <div id="progress-bar"><div id="progress-fill"></div></div>
+      <div id="progress-text">0 / 0</div>
+    </div>
+    <div class="ctrl-group" style="margin-left:auto;">
+      <div class="ctrl-label">跳转编号</div>
+      <div style="display:flex;gap:8px;">
+        <input type="number" id="jump-input" placeholder="如 7800" min="7135" max="8542">
+        <button id="jump-btn" class="btn btn-secondary">跳转</button>
+      </div>
     </div>
   </div>
-</header>
 
-<main>
-  <div id="status" class="status-msg">正在加载索引...</div>
-
-  <div class="download-bar" id="download-bar" style="display:none">
-    <div class="download-info">
-      <strong id="dl-filename"></strong>
-      <span id="dl-detail" class="stat"></span>
-    </div>
-    <div class="progress-wrap"><div class="progress-bar" id="dl-progress"></div></div>
-    <button id="dl-cancel" style="background:#cf222e;border-color:#cf222e">取消</button>
+  <!-- 网格信息 -->
+  <div id="grid-info" style="display:none;">
+    <div>共 <strong id="grid-count">0</strong> 张 · <span id="grid-range"></span></div>
+    <div style="color: var(--text-dim);">键盘 ← → 翻页 · ESC 退出 · 滚轮缩放</div>
   </div>
 
-  <div class="gallery" id="gallery"></div>
-</main>
-
-<div id="overlay">
-  <button class="viewer-close">✕</button>
-  <button class="viewer-nav viewer-prev">‹</button>
-  <img id="viewer-img" alt="">
-  <button class="viewer-nav viewer-next">›</button>
-  <div class="viewer-info" id="viewer-info"></div>
+  <!-- 缩略图网格 -->
+  <div id="grid"></div>
 </div>
 
+<!-- 通知条 -->
+<div id="toast"></div>
+
+<!-- 放大层 -->
+<div id="lightbox">
+  <button class="lb-close" onclick="closeLightbox()" title="关闭 (ESC)">✕</button>
+  <button class="lb-nav lb-prev" onclick="lbPrev()" title="上一张 (←)">‹</button>
+  <button class="lb-nav lb-next" onclick="lbNext()" title="下一张 (→)">›</button>
+  <div class="lb-hint">← → 翻页 · ESC 关闭 · 滚轮缩放</div>
+  <div class="lb-toolbar">
+    <button onclick="lbZoom(0.2)" title="缩小">−</button>
+    <button onclick="lbZoom(-0.2)" title="放大">+</button>
+    <button onclick="lbZoomReset()" title="重置缩放">⟲</button>
+    <button onclick="lbRotate(-90)" title="向左旋转">↺</button>
+    <button onclick="lbRotate(90)" title="向右旋转">↻</button>
+    <span class="info" id="lb-info"></span>
+  </div>
+  <img id="lb-img" src="" alt="">
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 // ===== 配置 =====
-// 生产环境请改成你的 Cloudflare Worker URL
 const WORKER_URL = 'https://calculations-viewer.502487460.workers.dev';
 
+// ===== 全局状态 =====
 let INDEX = null;
-let currentZip = null;   // 当前选中的 zip 信息
-let currentImages = []; // [{no, name, blobUrl}, ...]
-let viewerIdx = 0;
-let abortCtrl = null;
+let ZIP_CONTENTS = null;       // 当前下载的 zip 解压后的 {filename: blobURL}
+let CURRENT_ZIP = null;        // 当前选中的 zip
+let LB_IMAGES = [];            // lightbox 图片 URL 数组
+let LB_IDX = 0;                // lightbox 当前索引
+let LB_SCALE = 1;
+let LB_ROTATE = 0;
 
-// ===== 加载索引 =====
-async function loadIndex() {
-  showStatus('正在加载索引...', '');
-  try {
-    const r = await fetch('index.json');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    INDEX = await r.json();
-
-    const sel = document.getElementById('zip-select');
-    sel.innerHTML = '';
-    for (const z of INDEX.zips) {
-      const opt = document.createElement('option');
-      opt.value = z.zip_name;
-      opt.textContent = `${z.label} · ${z.size_mb} MB · No.${z.range[0]}–${z.range[1]} (${z.count}张)`;
-      sel.appendChild(opt);
-    }
-    sel.disabled = false;
-    document.getElementById('goto-input').disabled = false;
-    document.getElementById('goto-btn').disabled = false;
-
-    if (INDEX.zips.length > 0) {
-      // 默认选最新（sync_index 已按 zip_name 倒序排）
-      sel.value = INDEX.zips[0].zip_name;
-      onZipChange();
-    }
-    showStatus(`✅ 索引就绪：${INDEX.zips.length} 个 zip / 约 ${INDEX.zips.reduce((s,z)=>s+z.count,0)} 张图片`, 'status-ok');
-  } catch (e) {
-    showStatus('❌ 索引加载失败：' + e.message + '<br><small>请先在 GitHub 发 Release 并运行 sync_index workflow</small>', 'status-err');
+// ===== 通知条 =====
+let toastTimer = null;
+function toast(msg, isError = false, duration = 5000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.toggle('error', isError);
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  if (duration > 0) {
+    toastTimer = setTimeout(() => el.classList.remove('show'), duration);
   }
 }
 
-function showStatus(msg, cls) {
-  const el = document.getElementById('status');
-  el.innerHTML = msg;
-  el.className = 'status-msg ' + (cls || '');
+// ===== 加载索引 =====
+async function loadIndex() {
+  try {
+    const resp = await fetch('index.json');
+    INDEX = await resp.json();
+    populateZips();
+  } catch (e) {
+    toast('加载索引失败: ' + e.message, true);
+  }
 }
 
-function onZipChange() {
-  const zipName = document.getElementById('zip-select').value;
-  if (!zipName) return;
-  currentZip = INDEX.zips.find(z => z.zip_name === zipName);
-  document.getElementById('zip-info').textContent =
-    `${currentZip.label} · ${currentZip.size_mb} MB · No.${currentZip.range[0]}–${currentZip.range[1]}`;
-  // 旧图片释放内存
-  for (const img of currentImages) URL.revokeObjectURL(img.blobUrl);
-  currentImages = [];
-  document.getElementById('gallery').innerHTML = '';
-  document.getElementById('gallery').innerHTML =
-    `<div class="status-msg" style="text-align:center">
-      👉 点击下方<b>下载并查看</b>按钮加载 ${currentZip.zip_name}（${currentZip.size_mb} MB）
-      <button id="dl-trigger" style="margin-left:12px">📥 下载并查看</button>
-     </div>`;
-  document.getElementById('dl-trigger').onclick = () => downloadAndShow();
+function populateZips() {
+  const sel = document.getElementById('zip-select');
+  sel.innerHTML = '';
+  // 按时间倒序（最新在前）
+  const sorted = [...INDEX.zips].sort((a, b) => (b.zip_name > a.zip_name ? 1 : -1));
+  for (const z of sorted) {
+    const opt = document.createElement('option');
+    const [lo, hi] = z.range;
+    opt.value = z.zip_name;
+    opt.textContent = `${z.label} · ${z.count}张 · No.${lo}-${hi} · ${z.size_mb}MB`;
+    opt.dataset = { assetId: z.asset_id, repo: INDEX.repo, range: `${lo},${hi}` };
+    sel.appendChild(opt);
+  }
+  CURRENT_ZIP = sorted[0];
 }
 
-// ===== Worker URL 解析 =====
+// ===== 下载 zip =====
 function getZipUrl(zipInfo) {
   if (WORKER_URL) {
-    // Worker 路由：/zip/{owner}/{repo}/{asset_id}
     return `${WORKER_URL}/zip/${INDEX.repo}/${zipInfo.asset_id}`;
   }
   return zipInfo.browser_url || '';
 }
 
-// ===== 下载 zip + 解压 =====
-async function downloadAndShow() {
-  if (!currentZip) return;
-  const zipUrl = getZipUrl(currentZip);
+async function downloadZip(zipInfo) {
+  const url = getZipUrl(zipInfo);
+  const btn = document.getElementById('dl-btn');
+  const wrap = document.getElementById('progress-wrap');
+  const fill = document.getElementById('progress-fill');
+  const txt = document.getElementById('progress-text');
 
-  document.getElementById('download-bar').style.display = 'flex';
-  document.getElementById('dl-filename').textContent = currentZip.zip_name;
-  document.getElementById('dl-detail').textContent = `下载 ${currentZip.size_mb} MB`;
-  document.getElementById('dl-progress').style.width = '0%';
-
-  abortCtrl = new AbortController();
-  document.getElementById('dl-cancel').onclick = () => abortCtrl.abort();
+  btn.disabled = true; btn.textContent = '下载中...';
+  wrap.classList.add('show');
+  fill.style.width = '0%';
+  txt.textContent = '连接中...';
 
   try {
-    const resp = await fetch(zipUrl, { signal: abortCtrl.signal });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status + '（可能 CORS 被拦，请配置 Worker）');
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const total = parseInt(resp.headers.get('content-length') || '0');
 
-    const total = Number(resp.headers.get('content-length') || currentZip.size_mb * 1024 * 1024);
     const reader = resp.body.getReader();
-    const chunks = []; let received = 0;
-
+    const chunks = [];
+    let received = 0;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      chunks.push(value);
-      received += value.length;
-      const pct = total ? (received / total * 100).toFixed(0) : ((received / 1024 / 1024).toFixed(0) + ' MB');
-      document.getElementById('dl-progress').style.width = (total ? pct + '%' : Math.min(100, parseInt(pct)) + '%');
-      document.getElementById('dl-detail').textContent =
-        `${(received/1024/1024).toFixed(1)} / ${currentZip.size_mb} MB`;
+      chunks.push(value); received += value.length;
+      if (total) {
+        fill.style.width = (received / total * 100).toFixed(1) + '%';
+        txt.textContent = `${(received/1024/1024).toFixed(1)} / ${(total/1024/1024).toFixed(1)} MB`;
+      } else {
+        txt.textContent = `已下载 ${(received/1024/1024).toFixed(1)} MB`;
+      }
+    }
+    const blob = new Blob(chunks);
+    btn.textContent = '解压中...';
+    txt.textContent = '解压 zip...';
+
+    const jszip = await JSZip.loadAsync(blob);
+    const contents = {};
+    const fileNames = Object.keys(jszip.files).filter(n => !n.endsWith('/'));
+
+    for (let i = 0; i < fileNames.length; i++) {
+      const name = fileNames[i];
+      const isImg = /\.(jpe?g|png|gif|webp|bmp)$/i.test(name);
+      if (isImg) {
+        const blob = await jszip.files[name].async('blob');
+        const base = name.split('/').pop();
+        contents[base] = URL.createObjectURL(blob);
+      }
+      // 解压进度
+      if (i % 5 === 0) {
+        fill.style.width = ((i + 1) / fileNames.length * 100).toFixed(1) + '%';
+        txt.textContent = `解压中 ${i+1}/${fileNames.length}`;
+      }
     }
 
-    const blob = new Blob(chunks, { type: 'application/zip' });
-    document.getElementById('dl-detail').textContent = '解压中...';
-
-    const zip = await JSZip.loadAsync(blob);
-    // 按编号排序，只保留图片
-    const files = Object.values(zip.files)
-      .filter(f => !f.dir && /\.(png|jpe?g|gif|webp)$/i.test(f.name))
-      .sort((a, b) => {
-        const an = parseInt(a.name.match(/(\d+)/)[1]);
-        const bn = parseInt(b.name.match(/(\d+)/)[1]);
-        return an - bn;
-      });
-
-    currentImages = [];
-    for (const f of files) {
-      const arr = await f.async('arraybuffer');
-      const blobUrl = URL.createObjectURL(new Blob([arr], { type: 'image/jpeg' }));
-      const no = parseInt(f.name.match(/(\d+)/)[1]);
-      currentImages.push({ no, name: f.name, blobUrl });
-    }
-
-    renderGallery();
-    document.getElementById('download-bar').style.display = 'none';
+    ZIP_CONTENTS = contents;
+    btn.textContent = '✅ 已加载';
+    toast(`下载完成：${Object.keys(contents).length} 张图片`);
+    renderGrid();
   } catch (e) {
-    if (e.name === 'AbortError') {
-      showStatus('已取消下载', '');
-      document.getElementById('download-bar').style.display = 'none';
-    } else {
-      showStatus('❌ 下载失败：' + e.message, 'status-err');
-      document.getElementById('download-bar').style.display = 'none';
-    }
+    toast('下载失败: ' + e.message, true);
+    btn.textContent = '📥 下载并查看';
+  } finally {
+    btn.disabled = false;
   }
 }
 
-function renderGallery() {
-  const grid = document.getElementById('gallery');
+// ===== 渲染网格 =====
+function extractNum(filename) {
+  const m = filename.match(/^(\d+)/);
+  return m ? parseInt(m[1]) : 0;
+}
+
+function renderGrid() {
+  const grid = document.getElementById('grid');
+  const info = document.getElementById('grid-info');
+  const files = Object.keys(ZIP_CONTENTS).sort((a, b) => extractNum(a) - extractNum(b));
+
+  info.style.display = 'flex';
+  document.getElementById('grid-count').textContent = files.length;
+  const nums = files.map(extractNum);
+  document.getElementById('grid-range').textContent = `No.${Math.min(...nums)} - No.${Math.max(...nums)}`;
+
   grid.innerHTML = '';
-  for (const img of currentImages) {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `<img src="${img.blobUrl}" loading="lazy"><div class="no">No.${img.no}</div>`;
-    card.onclick = () => openViewer(currentImages.indexOf(img));
-    grid.appendChild(card);
+  LB_IMAGES = files.map(f => ({ filename: f, url: ZIP_CONTENTS[f] }));
+
+  for (let i = 0; i < files.length; i++) {
+    const div = document.createElement('div');
+    div.className = 'thumb';
+    div.dataset.idx = i;
+    div.innerHTML = `
+      <div class="placeholder">加载中...</div>
+      <img loading="lazy" src="${ZIP_CONTENTS[files[i]]}" alt="${files[i]}">
+      <div class="num">No.${extractNum(files[i])}</div>
+    `;
+    div.querySelector('img').addEventListener('load', () => {
+      div.classList.add('loaded');
+      div.querySelector('.placeholder').remove();
+    });
+    div.addEventListener('click', () => openLightbox(i));
+    grid.appendChild(div);
   }
-  showStatus(`✅ ${currentZip.label} 加载完成 · ${currentImages.length} 张图片`, 'status-ok');
 }
 
-// ===== 编号跳转 =====
-function gotoNumber() {
-  const no = parseInt(document.getElementById('goto-input').value);
-  if (!no || !INDEX) return;
-  // 找哪个 zip 包含这个编号
-  const target = INDEX.zips.find(z => no >= z.range[0] && no <= z.range[1]);
-  if (!target) { showStatus(`⚠️ No.${no} 不在任何已发布 zip 中`, ''); return; }
+// ===== Lightbox =====
+function openLightbox(idx) {
+  LB_IDX = idx; LB_SCALE = 1; LB_ROTATE = 0;
+  updateLB();
+  document.getElementById('lightbox').classList.add('show');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('show');
+}
+function updateLB() {
+  const img = document.getElementById('lb-img');
+  const cur = LB_IMAGES[LB_IDX];
+  img.src = cur.url;
+  img.style.transform = `scale(${LB_SCALE}) rotate(${LB_ROTATE}deg)`;
+  document.getElementById('lb-info').textContent =
+    `No.${extractNum(cur.filename)} (${LB_IDX+1}/${LB_IMAGES.length})`;
+}
+function lbPrev() { if (LB_IDX > 0) { LB_IDX--; LB_SCALE=1; LB_ROTATE=0; updateLB(); } }
+function lbNext() { if (LB_IDX < LB_IMAGES.length - 1) { LB_IDX++; LB_SCALE=1; LB_ROTATE=0; updateLB(); } }
+function lbZoom(delta) { LB_SCALE = Math.max(0.1, Math.min(8, LB_SCALE + delta)); updateLB(); }
+function lbZoomReset() { LB_SCALE = 1; LB_ROTATE = 0; updateLB(); }
+function lbRotate(deg) { LB_ROTATE = (LB_ROTATE + deg) % 360; updateLB(); }
+
+// ===== 事件绑定 =====
+document.addEventListener('keydown', (e) => {
+  if (!document.getElementById('lightbox').classList.contains('show')) return;
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft') lbPrev();
+  else if (e.key === 'ArrowRight') lbNext();
+  else if (e.key === '+' || e.key === '=') lbZoom(-0.2);
+  else if (e.key === '-') lbZoom(0.2);
+  else if (e.key === 'r' || e.key === 'R') lbRotate(90);
+  else if (e.key === 'R') lbRotate(-90);
+});
+
+// 滚轮缩放（只在 lightbox 上）
+document.getElementById('lb-img').addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.1 : -0.1;
+  lbZoom(delta);
+}, { passive: false });
+
+// 点击 lightbox 背景关闭（点到图片本身不关闭，防止误操作）
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if (e.target.id === 'lightbox') closeLightbox();
+});
+
+document.getElementById('dl-btn').addEventListener('click', () => {
+  const sel = document.getElementById('zip-select');
+  const zipInfo = INDEX.zips.find(z => z.zip_name === sel.value);
+  if (zipInfo) { CURRENT_ZIP = zipInfo; downloadZip(zipInfo); }
+});
+
+document.getElementById('zip-select').addEventListener('change', (e) => {
+  const zipInfo = INDEX.zips.find(z => z.zip_name === e.target.value);
+  if (zipInfo) CURRENT_ZIP = zipInfo;
+});
+
+document.getElementById('jump-btn').addEventListener('click', jumpToNumber);
+document.getElementById('jump-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') jumpToNumber();
+});
+
+function jumpToNumber() {
+  const val = parseInt(document.getElementById('jump-input').value);
+  if (!val) return toast('请输入编号', true);
+
+  // 找编号所在的 zip（用 range 判断）
+  const target = INDEX.zips.find(z => val >= z.range[0] && val <= z.range[1]);
+  if (!target) return toast(`编号 ${val} 不在范围内（No.${INDEX.range_min}-${INDEX.range_max}）`, true);
+
+  // 选中 zip
   document.getElementById('zip-select').value = target.zip_name;
-  onZipChange();
-  // 等用户点下载，或者自动下载（当前 zip 已有数据则直接定位）
-  setTimeout(() => {
-    if (currentImages.length > 0) {
-      const idx = currentImages.findIndex(i => i.no === no);
-      if (idx >= 0) openViewer(idx);
-      else showStatus(`⚠️ No.${no} 不在当前已加载的数据中（可能不在这个 zip 里）`, '');
-    } else {
-      document.getElementById('dl-trigger')?.click();
-      document.getElementById('status').innerHTML += `<br><small>编号 No.${no} 属于 ${target.label}，下载完成后将自动定位</small>`;
+  CURRENT_ZIP = target;
+
+  // 如果还没下载，下载后自动滚动/定位
+  if (!ZIP_CONTENTS || !ZIP_CONTENTS[`${val}.jpg`] && !ZIP_CONTENTS[`${val}.png`]) {
+    toast(`No.${val} 在 ${target.label}，开始下载...`);
+    downloadZip(target).then(() => {
+      // 下载完找到图片索引，打开 lightbox
+      const ext = ['jpg','jpeg','png','gif','webp'].find(
+        e => ZIP_CONTENTS[`${val}.${e}`]
+      );
+      if (ext) {
+        const fname = `${val}.${ext}`;
+        const idx = LB_IMAGES.findIndex(x => x.filename === fname);
+        if (idx >= 0) openLightbox(idx);
+      }
+    });
+  } else {
+    // 已下载，直接定位
+    const fname = Object.keys(ZIP_CONTENTS).find(n => extractNum(n) === val);
+    if (fname) {
+      const idx = LB_IMAGES.findIndex(x => x.filename === fname);
+      if (idx >= 0) openLightbox(idx);
     }
-  }, 100);
-}
-
-// ===== 放大查看 =====
-function openViewer(idx) {
-  viewerIdx = idx;
-  const img = currentImages[idx];
-  document.getElementById('viewer-img').src = img.blobUrl;
-  document.getElementById('viewer-info').textContent =
-    `No.${img.no} · ${idx + 1}/${currentImages.length}`;
-  document.getElementById('overlay').classList.add('active');
-}
-function closeViewer() { document.getElementById('overlay').classList.remove('active'); }
-function viewerPrev() { if (viewerIdx > 0) openViewer(viewerIdx - 1); }
-function viewerNext() { if (viewerIdx < currentImages.length - 1) openViewer(viewerIdx + 1); }
-
-// ===== 键盘 =====
-document.addEventListener('keydown', e => {
-  if (document.getElementById('overlay').classList.contains('active')) {
-    if (e.key === 'Escape') closeViewer();
-    else if (e.key === 'ArrowLeft') viewerPrev();
-    else if (e.key === 'ArrowRight') viewerNext();
-  } else if (e.key === 'Enter' && document.activeElement.tagName === 'INPUT') {
-    gotoNumber();
   }
-});
+}
 
-// ===== 事件 =====
-document.getElementById('zip-select').addEventListener('change', onZipChange);
-document.getElementById('goto-btn').addEventListener('click', gotoNumber);
-document.getElementById('goto-input').addEventListener('keydown', e => { if (e.key === 'Enter') gotoNumber(); });
-document.querySelector('.viewer-close').addEventListener('click', closeViewer);
-document.querySelector('.viewer-prev').addEventListener('click', viewerPrev);
-document.querySelector('.viewer-next').addEventListener('click', viewerNext);
-document.getElementById('overlay').addEventListener('click', e => {
-  if (e.target.id === 'overlay') closeViewer();
-});
-
+// 启动
 loadIndex();
 </script>
+
+</body>
+</html>
