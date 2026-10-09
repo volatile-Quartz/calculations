@@ -409,14 +409,17 @@ function renderGrid() {
 
 
 // ===== Lightbox =====
-let LB_NATURAL_W = 0, LB_NATURAL_H = 0;  // 图片原始尺寸
-let LB_FIT_SCALE = 1;                      // 适应窗口的缩放比
+let LB_NATURAL_W = 0, LB_NATURAL_H = 0;
+let LB_FIT_SCALE = 1;
+let LB_TX = 0, LB_TY = 0;        // 拖动位移
+
+// 拖动状态
+let DRAG = { active:false, startX:0, startY:0, origX:0, origY:0, moved:false };
 
 function openLightbox(idx) {
-  LB_IDX = idx; LB_SCALE = 1; LB_ROTATE = 0;
+  LB_IDX = idx; LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
   document.getElementById('lightbox').classList.add('show');
   const img = document.getElementById('lb-img');
-  // 等图片加载完取原始尺寸 → 计算适应窗口的缩放
   img.onload = () => {
     LB_NATURAL_W = img.naturalWidth;
     LB_NATURAL_H = img.naturalHeight;
@@ -431,56 +434,78 @@ function closeLightbox() {
   img.onload = null; img.src = '';
 }
 
-// 适应浏览器窗口（保留原始宽高比）
 function fitToWindow() {
-  const img = document.getElementById('lb-img');
   const vw = window.innerWidth * 0.9;
   const vh = window.innerHeight * 0.85;
-  if (!LB_NATURAL_W) { LB_FIT_SCALE = 1; }
-  else {
-    LB_FIT_SCALE = Math.min(vw / LB_NATURAL_W, vh / LB_NATURAL_H, 1);
-  }
+  LB_FIT_SCALE = LB_NATURAL_W
+    ? Math.min(vw / LB_NATURAL_W, vh / LB_NATURAL_H, 1)
+    : 1;
   LB_SCALE = LB_FIT_SCALE;
+  LB_TX = 0; LB_TY = 0;
   updateLB();
 }
 
-// 图片点击：适应 ↔ 原始 大小
 function toggleZoom() {
   if (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) {
-    // 现在是适应窗口 → 放大到原始（或 2 倍，取大的）
     LB_SCALE = Math.max(LB_FIT_SCALE * 2, 1);
   } else {
-    // 现在是放大状态 → 回到适应窗口
     LB_SCALE = LB_FIT_SCALE;
   }
+  LB_TX = 0; LB_TY = 0;  // 切换缩放时重置位移
   updateLB();
 }
 
 function updateLB() {
   const img = document.getElementById('lb-img');
   const cur = LB_IMAGES[LB_IDX];
-  img.style.transform = `rotate(${LB_ROTATE}deg) scale(${LB_SCALE / LB_FIT_SCALE})`;
-  img.style.cursor = (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) ? 'zoom-in' : 'zoom-out';
+  // 先 translate → 再 rotate → 再 scale
+  img.style.transform = `translate(${LB_TX}px, ${LB_TY}px) rotate(${LB_ROTATE}deg) scale(${LB_SCALE / LB_FIT_SCALE})`;
+  img.style.cursor = (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) ? 'zoom-in' : 'grab';
   document.getElementById('lb-info').textContent =
     `No.${extractNum(cur.filename)} (${LB_IDX+1}/${LB_IMAGES.length}) · ${(LB_SCALE*100).toFixed(0)}%`;
 }
-function lbPrev() { if (LB_IDX > 0) { LB_IDX--; LB_SCALE=1; LB_ROTATE=0; openLightbox(LB_IDX); } }
-function lbNext() { if (LB_IDX < LB_IMAGES.length - 1) { LB_IDX++; LB_SCALE=1; LB_ROTATE=0; openLightbox(LB_IDX); } }
 
-// 修复 1: 按钮和滚轮方向（滚轮 deltaY>0 是往下滚 → 缩小，正确方向）
+function lbPrev() { if (LB_IDX > 0) { openLightbox(LB_IDX - 1); } }
+function lbNext() { if (LB_IDX < LB_IMAGES.length - 1) { openLightbox(LB_IDX + 1); } }
+
 function lbZoom(delta) {
-  // delta: +0.1 表示"想放大"，-0.1 表示"想缩小"
   const base = LB_FIT_SCALE;
   const minS = base * 0.3, maxS = base * 8;
   LB_SCALE = Math.max(minS, Math.min(maxS, LB_SCALE * (1 + delta)));
+  // 缩放时按住 shift 不重置位移，否则重置
+  LB_TX = 0; LB_TY = 0;
   updateLB();
 }
 
-// 修复 6: 重置 = 适应窗口
 function lbZoomReset() { LB_ROTATE = 0; fitToWindow(); }
-
-// 修复 5: 旋转用累加不用模运算 → 360° 以上继续走
 function lbRotate(deg) { LB_ROTATE += deg; updateLB(); }
+
+// ===== 拖动 =====
+document.getElementById('lb-img').addEventListener('mousedown', (e) => {
+  if (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) return; // 适应窗口时不能拖
+  e.preventDefault();
+  DRAG.active = true; DRAG.moved = false;
+  DRAG.startX = e.clientX; DRAG.startY = e.clientY;
+  DRAG.origX = LB_TX; DRAG.origY = LB_TY;
+  document.getElementById('lb-img').style.cursor = 'grabbing';
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!DRAG.active) return;
+  const dx = e.clientX - DRAG.startX;
+  const dy = e.clientY - DRAG.startY;
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) DRAG.moved = true;
+  LB_TX = DRAG.origX + dx;
+  LB_TY = DRAG.origY + dy;
+  updateLB();
+});
+
+document.addEventListener('mouseup', (e) => {
+  if (!DRAG.active) return;
+  DRAG.active = false;
+  document.getElementById('lb-img').style.cursor =
+    (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) ? 'zoom-in' : 'grab';
+});
 
 // ===== 事件绑定 =====
 document.addEventListener('keydown', (e) => {
