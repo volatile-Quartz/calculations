@@ -102,7 +102,7 @@
 <script>
 // ===== 配置 =====
 // 生产环境请改成你的 Cloudflare Worker URL
-const WORKER_URL = '';  // 例如 'https://calc-viewer.workers.dev'，留空则直接 fetch（需要 zip 同域或 CORS）
+const WORKER_URL = 'https://calculations-viewer.502487460.workers.dev';
 
 let INDEX = null;
 let currentZip = null;   // 当前选中的 zip 信息
@@ -166,23 +166,21 @@ function onZipChange() {
 }
 
 // ===== Worker URL 解析 =====
-function getZipUrl(zipName) {
+function getZipUrl(zipInfo) {
   if (WORKER_URL) {
-    return `${WORKER_URL}/zip/${INDEX.repo}/${zipName}`;
+    // Worker 路由：/zip/{owner}/{repo}/{asset_id}
+    return `${WORKER_URL}/zip/${INDEX.repo}/${zipInfo.asset_id}`;
   }
-  // 无 Worker：从 index.json 里的 browser_url（需要同域 zip 或 CORS）
-  const z = INDEX.zips.find(x => x.zip_name === zipName);
-  return z ? z.browser_url : '';
+  return zipInfo.browser_url || '';
 }
 
 // ===== 下载 zip + 解压 =====
 async function downloadAndShow() {
   if (!currentZip) return;
-  const zipName = currentZip.zip_name;
-  const zipUrl = getZipUrl(zipName);
+  const zipUrl = getZipUrl(currentZip);
 
   document.getElementById('download-bar').style.display = 'flex';
-  document.getElementById('dl-filename').textContent = zipName;
+  document.getElementById('dl-filename').textContent = currentZip.zip_name;
   document.getElementById('dl-detail').textContent = `下载 ${currentZip.size_mb} MB`;
   document.getElementById('dl-progress').style.width = '0%';
 
