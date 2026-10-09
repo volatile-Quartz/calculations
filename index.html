@@ -144,14 +144,17 @@
     cursor: zoom-in; user-select: none; -webkit-user-drag: none;
     object-fit: contain;
   }
-  #lightbox img.slide-out-left { animation: slideOutLeft 0.25s ease forwards; }
-  #lightbox img.slide-out-right { animation: slideOutRight 0.25s ease forwards; }
-  #lightbox img.slide-in-left { animation: slideInLeft 0.25s ease forwards; }
-  #lightbox img.slide-in-right { animation: slideInRight 0.25s ease forwards; }
-  @keyframes slideOutLeft { to { transform: translateX(-100vw); opacity: 0; } }
-  @keyframes slideOutRight { to { transform: translateX(100vw); opacity: 0; } }
-  @keyframes slideInLeft { from { transform: translateX(-100vw); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-  @keyframes slideInRight { from { transform: translateX(100vw); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  #lb-stage {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    perspective: 1000px;
+  }
+  #lb-stage.sliding { transition: transform 0.25s ease, opacity 0.25s ease; }
+  #lb-stage.slide-out-left { transform: translateX(-100vw); opacity: 0; }
+  #lb-stage.slide-out-right { transform: translateX(100vw); opacity: 0; }
+  #lb-stage.slide-in-left { transform: translateX(0); opacity: 1; animation: none; }
+  #lb-stage.slide-in-right { transform: translateX(0); opacity: 1; animation: none; }
   #lightbox img.zoomed { cursor: grab; }
   #lightbox img.zoomed:active { cursor: grabbing; }
 
@@ -433,6 +436,10 @@ let DRAG = { active:false, startX:0, startY:0, origX:0, origY:0, moved:false };
 
 function openLightbox(idx) {
   LB_IDX = idx; LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
+  // 清除 stage 上可能残留的 slide class
+  const stage = document.getElementById('lb-stage');
+  stage.classList.remove('sliding','slide-out-left','slide-out-right','slide-in-left','slide-in-right');
+  stage.style.transform = ''; stage.style.opacity = '';
   document.getElementById('lightbox').classList.add('show');
   const img = document.getElementById('lb-img');
   img.onload = () => {
@@ -482,22 +489,39 @@ function updateLB() {
 
 function lbPrev() {
   if (LB_IDX <= 0) return;
-  const img = document.getElementById('lb-img');
-  img.classList.remove('slide-in-left','slide-in-right','slide-out-left','slide-out-right');
-  img.classList.add('slide-out-left');
+  const stage = document.getElementById('lb-stage');
+  stage.classList.add('sliding', 'slide-out-right');
   setTimeout(() => {
     openLightbox(LB_IDX - 1);
-    img.classList.add('slide-in-left');
+    stage.classList.remove('slide-out-right');
+    stage.style.transform = 'translateX(-100vw)';
+    stage.style.opacity = '0';
+    // 强制 reflow
+    void stage.offsetWidth;
+    stage.style.transform = '';
+    stage.style.opacity = '';
+    stage.classList.add('slide-in-left');
+    setTimeout(() => {
+      stage.classList.remove('sliding', 'slide-in-left');
+    }, 270);
   }, 220);
 }
 function lbNext() {
   if (LB_IDX >= LB_IMAGES.length - 1) return;
-  const img = document.getElementById('lb-img');
-  img.classList.remove('slide-in-left','slide-in-right','slide-out-left','slide-out-right');
-  img.classList.add('slide-out-right');
+  const stage = document.getElementById('lb-stage');
+  stage.classList.add('sliding', 'slide-out-left');
   setTimeout(() => {
     openLightbox(LB_IDX + 1);
-    img.classList.add('slide-in-right');
+    stage.classList.remove('slide-out-left');
+    stage.style.transform = 'translateX(100vw)';
+    stage.style.opacity = '0';
+    void stage.offsetWidth;
+    stage.style.transform = '';
+    stage.style.opacity = '';
+    stage.classList.add('slide-in-right');
+    setTimeout(() => {
+      stage.classList.remove('sliding', 'slide-in-right');
+    }, 270);
   }, 220);
 }
 
