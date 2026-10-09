@@ -148,13 +148,18 @@
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     overflow: hidden;
-    perspective: 1000px;
   }
-  #lb-stage.sliding { transition: transform 0.25s ease, opacity 0.25s ease; }
-  #lb-stage.slide-out-left { transform: translateX(-100vw); opacity: 0; }
-  #lb-stage.slide-out-right { transform: translateX(100vw); opacity: 0; }
-  #lb-stage.slide-in-left { transform: translateX(0); opacity: 1; animation: none; }
-  #lb-stage.slide-in-right { transform: translateX(0); opacity: 1; animation: none; }
+  .lb-slide-img {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    will-change: transform, opacity;
+  }
+  .lb-slide-img img {
+    max-width: 90vw; max-height: 85vh;
+    cursor: zoom-in; user-select: none; -webkit-user-drag: none;
+    object-fit: contain;
+  }
+  .lb-slide-img.animating { transition: transform 0.25s ease, opacity 0.25s ease; }
   #lightbox img.zoomed { cursor: grab; }
   #lightbox img.zoomed:active { cursor: grabbing; }
 
@@ -256,7 +261,8 @@
     <span class="info" id="lb-info"></span>
   </div>
   <div id="lb-stage">
-    <img id="lb-img" src="" alt="">
+    <div id="lb-current" class="lb-slide-img"><img id="lb-img" src="" alt=""></div>
+    <div id="lb-next" class="lb-slide-img" style="display:none"><img id="lb-img2" src="" alt=""></div>
   </div>
 </div>
 
@@ -429,19 +435,24 @@ function renderGrid() {
 // ===== Lightbox =====
 let LB_NATURAL_W = 0, LB_NATURAL_H = 0;
 let LB_FIT_SCALE = 1;
-let LB_TX = 0, LB_TY = 0;        // 拖动位移
+let LB_TX = 0, LB_TY = 0;
+let LB_ANIMATING = false;
 
-// 拖动状态
 let DRAG = { active:false, startX:0, startY:0, origX:0, origY:0, moved:false };
+
+const $CUR = () => document.getElementById('lb-current');
+const $NXT = () => document.getElementById('lb-next');
+const $IMG = () => document.getElementById('lb-img');
 
 function openLightbox(idx) {
   LB_IDX = idx; LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
-  // 清除 stage 上可能残留的 slide class
-  const stage = document.getElementById('lb-stage');
-  stage.classList.remove('sliding','slide-out-left','slide-out-right','slide-in-left','slide-in-right');
-  stage.style.transform = ''; stage.style.opacity = '';
+  LB_ANIMATING = false;
   document.getElementById('lightbox').classList.add('show');
-  const img = document.getElementById('lb-img');
+  $NXT().style.display = 'none';
+  $NXT().style.transform = '';
+  $CUR().classList.remove('animating');
+  $CUR().style.transform = '';
+  const img = $IMG();
   img.onload = () => {
     LB_NATURAL_W = img.naturalWidth;
     LB_NATURAL_H = img.naturalHeight;
@@ -452,7 +463,7 @@ function openLightbox(idx) {
 
 function closeLightbox() {
   document.getElementById('lightbox').classList.remove('show');
-  const img = document.getElementById('lb-img');
+  const img = $IMG();
   img.onload = null; img.src = '';
 }
 
@@ -460,91 +471,89 @@ function fitToWindow() {
   const vw = window.innerWidth * 0.9;
   const vh = window.innerHeight * 0.85;
   LB_FIT_SCALE = LB_NATURAL_W
-    ? Math.min(vw / LB_NATURAL_W, vh / LB_NATURAL_H, 1)
-    : 1;
-  LB_SCALE = LB_FIT_SCALE;
-  LB_TX = 0; LB_TY = 0;
+    ? Math.min(vw / LB_NATURAL_W, vh / LB_NATURAL_H, 1) : 1;
+  LB_SCALE = LB_FIT_SCALE; LB_TX = 0; LB_TY = 0;
   updateLB();
 }
 
 function toggleZoom() {
   if (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) {
     LB_SCALE = Math.max(LB_FIT_SCALE * 2, 1);
-  } else {
-    LB_SCALE = LB_FIT_SCALE;
-  }
-  LB_TX = 0; LB_TY = 0;  // 切换缩放时重置位移
-  updateLB();
+  } else { LB_SCALE = LB_FIT_SCALE; }
+  LB_TX = 0; LB_TY = 0; updateLB();
 }
 
 function updateLB() {
-  const img = document.getElementById('lb-img');
+  const img = $IMG();
   const cur = LB_IMAGES[LB_IDX];
-  // 先 translate → 再 rotate → 再 scale
-  img.style.transform = `translate(${LB_TX}px, ${LB_TY}px) rotate(${LB_ROTATE}deg) scale(${LB_SCALE / LB_FIT_SCALE})`;
+  img.style.transform = 'rotate(' + LB_ROTATE + 'deg) scale(' + (LB_SCALE / LB_FIT_SCALE) + ')';
+  $CUR().style.transform = 'translate(' + LB_TX + 'px, ' + LB_TY + 'px)';
   img.style.cursor = (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) ? 'zoom-in' : 'grab';
   document.getElementById('lb-info').textContent =
-    `No.${extractNum(cur.filename)} (${LB_IDX+1}/${LB_IMAGES.length}) · ${(LB_SCALE*100).toFixed(0)}%`;
+    'No.' + extractNum(cur.filename) + ' (' + (LB_IDX+1) + '/' + LB_IMAGES.length + ') · ' + (LB_SCALE*100).toFixed(0) + '%';
 }
 
-function lbPrev() {
-  if (LB_IDX <= 0) return;
-  const stage = document.getElementById('lb-stage');
-  stage.classList.add('sliding', 'slide-out-right');
+function lbPrev() { if (LB_IDX > 0 && !LB_ANIMATING) slideTo(LB_IDX - 1, 'prev'); }
+function lbNext() { if (LB_IDX < LB_IMAGES.length - 1 && !LB_ANIMATING) slideTo(LB_IDX + 1, 'next'); }
+
+// 同时滑出+滑入
+function slideTo(newIdx, dir) {
+  LB_ANIMATING = true;
+  const curBox = $CUR();
+  const nxtBox = $NXT();
+  const nxtImg = document.getElementById('lb-img2');
+
+  // prev: 新图从左来(-100vw→0)，旧图向右出去(0→100vw)
+  // next: 新图从右来(100vw→0)，旧图向左出去(0→-100vw)
+  const startX = dir === 'prev' ? '-100vw' : '100vw';
+  const endX   = dir === 'prev' ? '100vw'  : '-100vw';
+
+  nxtBox.style.display = 'flex';
+  nxtImg.src = LB_IMAGES[newIdx].url;
+  nxtImg.style.transform = '';
+  nxtBox.style.transform = 'translateX(' + startX + ')';
+  void nxtBox.offsetWidth; // reflow
+
+  curBox.classList.add('animating');
+  nxtBox.classList.add('animating');
+  curBox.style.transform = 'translateX(' + endX + ')';
+  nxtBox.style.transform = 'translateX(0)';
+
   setTimeout(() => {
-    openLightbox(LB_IDX - 1);
-    stage.classList.remove('slide-out-right');
-    stage.style.transform = 'translateX(-100vw)';
-    stage.style.opacity = '0';
-    // 强制 reflow
-    void stage.offsetWidth;
-    stage.style.transform = '';
-    stage.style.opacity = '';
-    stage.classList.add('slide-in-left');
-    setTimeout(() => {
-      stage.classList.remove('sliding', 'slide-in-left');
-    }, 270);
-  }, 220);
-}
-function lbNext() {
-  if (LB_IDX >= LB_IMAGES.length - 1) return;
-  const stage = document.getElementById('lb-stage');
-  stage.classList.add('sliding', 'slide-out-left');
-  setTimeout(() => {
-    openLightbox(LB_IDX + 1);
-    stage.classList.remove('slide-out-left');
-    stage.style.transform = 'translateX(100vw)';
-    stage.style.opacity = '0';
-    void stage.offsetWidth;
-    stage.style.transform = '';
-    stage.style.opacity = '';
-    stage.classList.add('slide-in-right');
-    setTimeout(() => {
-      stage.classList.remove('sliding', 'slide-in-right');
-    }, 270);
-  }, 220);
+    LB_IDX = newIdx;
+    const newSrc = nxtImg.src;
+    nxtImg.src = ''; nxtBox.style.display = 'none';
+    nxtBox.classList.remove('animating');
+    curBox.classList.remove('animating');
+    curBox.style.transform = '';
+    LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
+    const img = $IMG();
+    img.src = newSrc;
+    img.onload = () => {
+      LB_NATURAL_W = img.naturalWidth;
+      LB_NATURAL_H = img.naturalHeight;
+      fitToWindow();
+      LB_ANIMATING = false;
+    };
+  }, 260);
 }
 
 function lbZoom(delta) {
   const base = LB_FIT_SCALE;
-  const minS = base * 0.3, maxS = base * 8;
-  LB_SCALE = Math.max(minS, Math.min(maxS, LB_SCALE * (1 + delta)));
-  // 缩放时按住 shift 不重置位移，否则重置
-  LB_TX = 0; LB_TY = 0;
-  updateLB();
+  LB_SCALE = Math.max(base * 0.3, Math.min(base * 8, LB_SCALE * (1 + delta)));
+  LB_TX = 0; LB_TY = 0; updateLB();
 }
-
 function lbZoomReset() { LB_ROTATE = 0; fitToWindow(); }
 function lbRotate(deg) { LB_ROTATE += deg; updateLB(); }
 
 // ===== 拖动 =====
 document.getElementById('lb-img').addEventListener('mousedown', (e) => {
-  if (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) return; // 适应窗口时不能拖
+  if (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) return;
   e.preventDefault();
   DRAG.active = true; DRAG.moved = false;
   DRAG.startX = e.clientX; DRAG.startY = e.clientY;
   DRAG.origX = LB_TX; DRAG.origY = LB_TY;
-  document.getElementById('lb-img').style.cursor = 'grabbing';
+  $IMG().style.cursor = 'grabbing';
 });
 
 document.addEventListener('mousemove', (e) => {
@@ -554,13 +563,13 @@ document.addEventListener('mousemove', (e) => {
   if (Math.abs(dx) > 3 || Math.abs(dy) > 3) DRAG.moved = true;
   LB_TX = DRAG.origX + dx;
   LB_TY = DRAG.origY + dy;
-  updateLB();
+  $CUR().style.transform = 'translate(' + LB_TX + 'px, ' + LB_TY + 'px)';
 });
 
 document.addEventListener('mouseup', (e) => {
   if (!DRAG.active) return;
   DRAG.active = false;
-  document.getElementById('lb-img').style.cursor =
+  $IMG().style.cursor =
     (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) ? 'zoom-in' : 'grab';
 });
 
