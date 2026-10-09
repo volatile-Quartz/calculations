@@ -131,8 +131,8 @@ async function loadIndex() {
     document.getElementById('goto-btn').disabled = false;
 
     if (INDEX.zips.length > 0) {
-      // 默认选最新（按 zip_name 倒序）
-      sel.value = [...INDEX.zips].reverse()[0].zip_name;
+      // 默认选最新（sync_index 已按 zip_name 倒序排）
+      sel.value = INDEX.zips[0].zip_name;
       onZipChange();
     }
     showStatus(`✅ 索引就绪：${INDEX.zips.length} 个 zip / 约 ${INDEX.zips.reduce((s,z)=>s+z.count,0)} 张图片`, 'status-ok');
