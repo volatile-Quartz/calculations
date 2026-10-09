@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>📐 草稿纸查看器</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js">
 <style>
   :root {
     --bg: #0f1115;
@@ -36,6 +35,7 @@
     box-shadow: 0 8px 30px rgba(52,211,153,0.3);
     opacity: 0; transition: opacity 0.3s;
     pointer-events: none;
+    max-width: 80vw;
   }
   #toast.show { opacity: 1; }
   #toast.error { background: var(--red); color: white; }
@@ -59,14 +59,14 @@
   }
   .ctrl-group { display: flex; flex-direction: column; gap: 4px; }
   .ctrl-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
-  select, input[type=number] {
+  select, input[type=number], input[type=text] {
     background: var(--bg-soft); color: var(--text);
     border: 1px solid var(--border); border-radius: 8px;
     padding: 10px 14px; font-size: 14px; font-family: inherit;
     min-width: 180px; outline: none; transition: border 0.15s;
   }
   select:focus, input:focus { border-color: var(--accent); }
-  input[type=number] { width: 120px; }
+  #jump-input { width: 190px; min-width: 0; }
 
   .btn {
     background: var(--accent); color: white; border: none;
@@ -92,27 +92,19 @@
   #progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.15s; }
   #progress-text { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
 
-  /* 图片网格 */
-  #grid-info {
-    display: flex; justify-content: space-between; align-items: center;
-    color: var(--text-dim); font-size: 13px; margin-bottom: 12px;
-  }
-  #grid-info strong { color: var(--text); }
-
-  #grid {
-    display: grid; gap: 14px;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  }
+  /* 虚拟滚动图片网格：容器只负责撑高滚动条，瓦片绝对定位 */
+  #grid { position: relative; }
   .thumb {
-    aspect-ratio: 3/4; background: var(--card);
+    position: absolute; background: var(--card);
     border: 1px solid var(--border); border-radius: 10px;
     overflow: hidden; cursor: zoom-in;
-    position: relative; transition: transform 0.15s, border-color 0.15s;
+    transition: transform 0.15s, border-color 0.15s;
   }
   .thumb:hover { transform: translateY(-2px); border-color: var(--accent); }
   .thumb img {
     width: 100%; height: 100%; object-fit: cover;
     opacity: 0; transition: opacity 0.2s;
+    display: block; user-select: none; -webkit-user-drag: none;
   }
   .thumb.loaded img { opacity: 1; }
   .thumb .num {
@@ -120,11 +112,13 @@
     background: rgba(0,0,0,0.6); color: white; font-size: 12px; font-weight: 600;
     padding: 3px 8px; border-radius: 5px; backdrop-filter: blur(4px);
   }
-  .thumb .placeholder {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text-dim); font-size: 12px;
+
+  /* 图片网格信息栏 */
+  #grid-info {
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--text-dim); font-size: 13px; margin-bottom: 12px;
   }
+  #grid-info strong { color: var(--text); }
 
   /* 放大层 */
   #lightbox {
@@ -206,7 +200,7 @@
 
 <div class="app">
   <h1>📐 草稿纸查看器</h1>
-  <div class="subtitle">按月选择 · 按需下载 · 高清查看 · No.7135 - No.8542 · 共 1408 张</div>
+  <div class="subtitle" id="subtitle">按月选择 · 按需下载 · 高清查看</div>
 
   <!-- 控制面板 -->
   <div class="control">
@@ -220,10 +214,11 @@
       <div id="progress-text">0 / 0</div>
     </div>
     <div class="ctrl-group" style="margin-left:auto;">
-      <div class="ctrl-label">跳转编号</div>
+      <div class="ctrl-label">编号定位 / 范围浏览</div>
       <div style="display:flex;gap:8px;">
-        <input type="number" id="jump-input" placeholder="如 7800" min="7135" max="8542">
-        <button id="jump-btn" class="btn btn-secondary">跳转</button>
+        <input type="text" id="jump-input" inputmode="numeric" placeholder="如 7800 或 7600-7700">
+        <button id="jump-btn" class="btn btn-secondary" title="直达该编号的图片">跳转</button>
+        <button id="range-btn" class="btn btn-secondary" title="列出编号段内所有图片（跨包自动串联）">范围浏览</button>
       </div>
     </div>
   </div>
@@ -234,7 +229,7 @@
     <div style="color: var(--text-dim);">键盘 ← → 翻页 · ESC 退出 · 滚轮缩放</div>
   </div>
 
-  <!-- 缩略图网格 -->
+  <!-- 虚拟滚动缩略图网格 -->
   <div id="grid"></div>
 </div>
 
@@ -246,7 +241,7 @@
   <button class="lb-close" onclick="closeLightbox()" title="关闭 (ESC)">✕</button>
   <button class="lb-nav lb-prev" onclick="lbPrev()" title="上一张 (←)">‹</button>
   <button class="lb-nav lb-next" onclick="lbNext()" title="下一张 (→)">›</button>
-  <div class="lb-hint">← → 翻页 · ESC 关闭 · 滚轮缩放 · 拖动平移</div>
+  <div class="lb-hint">← → 翻页 · ESC 关闭 · 滚轮缩放 · 拖动平移 · L/R 旋转</div>
   <div class="lb-toolbar">
     <button onclick="lbZoom(-0.15)" title="缩小">−</button>
     <button onclick="lbZoom(0.15)" title="放大">+</button>
@@ -265,15 +260,25 @@
 <script>
 // ===== 配置 =====
 const WORKER_URL = 'https://calculations-viewer.502487460.workers.dev';
+const MAX_CACHE = 3;          // 内存里最多保留几个「已解压」的包（LRU）
+const TILE_MIN = 180;         // 缩略图最小宽度（与旧版网格一致）
+const GAP = 14;               // 瓦片间距
+const OVERSCAN_ROWS = 2;      // 视口外多渲染几行，滚动更顺滑
 
 // ===== 全局状态 =====
 let INDEX = null;
-let ZIP_CONTENTS = null;       // 当前下载的 zip 解压后的 {filename: blobURL}
-let CURRENT_ZIP = null;        // 当前选中的 zip
-let LB_IMAGES = [];            // lightbox 图片 URL 数组
-let LB_IDX = 0;                // lightbox 当前索引
+let CURRENT_LIST = [];        // 当前网格/放大层展示的图片：{num, name, url, zipName}
+let CURRENT_ZIP = null;       // 下拉框对应的包（仅用于展示）
+let LB_IDX = 0;               // 放大层当前索引
 let LB_SCALE = 1;
 let LB_ROTATE = 0;
+let LB_IMAGES = [];           // 与 CURRENT_LIST 同步（放大层直接读它）
+
+const ZIP_CACHE = new Map();  // zip_name -> {files, numMap, urls}，最近使用的在 Map 末尾
+const ZIP_INFLIGHT = new Map(); // 正在下载中的包，避免重复请求
+let PROTECTED = new Set();    // 正在批量加载的包（防止被 LRU 淘汰）
+let BUSY = false;             // 加载互斥
+let LOAD = null;              // 进度聚合状态
 
 // ===== 通知条 =====
 let toastTimer = null;
@@ -295,27 +300,45 @@ async function loadIndex() {
     INDEX = await resp.json();
     populateZips();
   } catch (e) {
-    toast('加载索引失败: ' + e.message, true);
+    toast('加载索引失败: ' + e.message, true, 0);
   }
 }
 
 function populateZips() {
   const sel = document.getElementById('zip-select');
   sel.innerHTML = '';
+  if (!INDEX.zips || !INDEX.zips.length) {
+    toast('索引里还没有归档包：发布 Release 后运行 Sync Index 工作流', true, 0);
+    return;
+  }
+
   // 按时间倒序（最新在前）
   const sorted = [...INDEX.zips].sort((a, b) => (b.zip_name > a.zip_name ? 1 : -1));
   for (const z of sorted) {
     const opt = document.createElement('option');
-    const [lo, hi] = z.range;
+    const rng = z.range ? `No.${z.range[0]}–${z.range[1]}` : '编号未知';
+    const cnt = (z.count != null) ? `${z.count}张` : '张数未知';
     opt.value = z.zip_name;
-    opt.textContent = `${z.label} · ${z.count}张 · No.${lo}-${hi} · ${z.size_mb}MB`;
-    opt.dataset = { assetId: z.asset_id, repo: INDEX.repo, range: `${lo},${hi}` };
+    opt.textContent = `${z.label} · ${cnt} · ${rng} · ${z.size_mb}MB`;
     sel.appendChild(opt);
   }
   CURRENT_ZIP = sorted[0];
+
+  // 副标题：全库编号范围
+  const sub = document.getElementById('subtitle');
+  if (INDEX.range_min != null) {
+    sub.textContent = `按月选择 · 按需下载 · 高清查看 · No.${INDEX.range_min} - No.${INDEX.range_max} · 共 ${INDEX.total_count ?? '?'} 张`;
+  }
+
+  // 输入框提示
+  const ji = document.getElementById('jump-input');
+  if (INDEX.range_min != null && INDEX.range_max != null) {
+    const mid = Math.round((INDEX.range_min + INDEX.range_max) / 2);
+    ji.placeholder = `如 ${mid} 或 编号段`;
+  }
 }
 
-// ===== 下载 zip =====
+// ===== 下载 + 解压（带 LRU 缓存） =====
 function getZipUrl(zipInfo) {
   if (WORKER_URL) {
     return `${WORKER_URL}/zip/${INDEX.repo}/${zipInfo.asset_id}`;
@@ -323,109 +346,296 @@ function getZipUrl(zipInfo) {
   return zipInfo.browser_url || '';
 }
 
-async function downloadZip(zipInfo) {
-  const url = getZipUrl(zipInfo);
-  const btn = document.getElementById('dl-btn');
-  const wrap = document.getElementById('progress-wrap');
-  const fill = document.getElementById('progress-fill');
-  const txt = document.getElementById('progress-text');
-
-  btn.disabled = true; btn.textContent = '下载中...';
-  wrap.classList.add('show');
-  fill.style.width = '0%';
-  txt.textContent = '连接中...';
-
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const total = parseInt(resp.headers.get('content-length') || '0');
-
-    const reader = resp.body.getReader();
-    const chunks = [];
-    let received = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value); received += value.length;
-      if (total) {
-        fill.style.width = (received / total * 100).toFixed(1) + '%';
-        txt.textContent = `${(received/1024/1024).toFixed(1)} / ${(total/1024/1024).toFixed(1)} MB`;
-      } else {
-        txt.textContent = `已下载 ${(received/1024/1024).toFixed(1)} MB`;
-      }
-    }
-    const blob = new Blob(chunks);
-    btn.textContent = '解压中...';
-    txt.textContent = '解压 zip...';
-
-    const jszip = await JSZip.loadAsync(blob);
-    const contents = {};
-    const fileNames = Object.keys(jszip.files).filter(n => !n.endsWith('/'));
-
-    for (let i = 0; i < fileNames.length; i++) {
-      const name = fileNames[i];
-      const isImg = /\.(jpe?g|png|gif|webp|bmp)$/i.test(name);
-      if (isImg) {
-        const blob = await jszip.files[name].async('blob');
-        const base = name.split('/').pop();
-        contents[base] = URL.createObjectURL(blob);
-      }
-      // 解压进度
-      if (i % 5 === 0) {
-        fill.style.width = ((i + 1) / fileNames.length * 100).toFixed(1) + '%';
-        txt.textContent = `解压中 ${i+1}/${fileNames.length}`;
-      }
-    }
-
-    ZIP_CONTENTS = contents;
-    btn.textContent = '✅ 已加载';
-    toast(`下载完成：${Object.keys(contents).length} 张图片`);
-    renderGrid();
-  } catch (e) {
-    toast('下载失败: ' + e.message, true);
-    btn.textContent = '📥 下载并查看';
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// ===== 渲染网格 =====
 function extractNum(filename) {
   const m = filename.match(/^(\d+)/);
-  return m ? parseInt(m[1]) : 0;
+  return m ? parseInt(m[1], 10) : 0;
 }
 
-function renderGrid() {
-  const grid = document.getElementById('grid');
-  const info = document.getElementById('grid-info');
-  const files = Object.keys(ZIP_CONTENTS).sort((a, b) => extractNum(a) - extractNum(b));
+function showProgress() { document.getElementById('progress-wrap').classList.add('show'); }
+function hideProgress() { document.getElementById('progress-wrap').classList.remove('show'); }
+function mb(bytes) { return (bytes / 1048576).toFixed(1) + ' MB'; }
 
-  info.style.display = 'flex';
-  document.getElementById('grid-count').textContent = files.length;
-  const nums = files.map(extractNum);
-  document.getElementById('grid-range').textContent = `No.${Math.min(...nums)} - No.${Math.max(...nums)}`;
-
-  grid.innerHTML = '';
-  LB_IMAGES = files.map(f => ({ filename: f, url: ZIP_CONTENTS[f] }));
-
-  for (let i = 0; i < files.length; i++) {
-    const div = document.createElement('div');
-    div.className = 'thumb';
-    div.dataset.idx = i;
-    div.innerHTML = `
-      <div class="placeholder">加载中...</div>
-      <img loading="lazy" src="${ZIP_CONTENTS[files[i]]}" alt="${files[i]}">
-      <div class="num">No.${extractNum(files[i])}</div>
-    `;
-    div.querySelector('img').addEventListener('load', () => {
-      div.classList.add('loaded');
-      div.querySelector('.placeholder').remove();
-    });
-    div.addEventListener('click', () => openLightbox(i));
-    grid.appendChild(div);
+function updateProgress() {
+  if (!LOAD) return;
+  const fill = document.getElementById('progress-fill');
+  const txt = document.getElementById('progress-text');
+  const cur = LOAD.stage === '下载'
+    ? Math.min(LOAD.cur, LOAD.zipBytes || LOAD.cur)
+    : (LOAD.zipBytes || 0);
+  const done = LOAD.doneBytes + cur;
+  fill.style.width = Math.min(100, done / LOAD.totalBytes * 100).toFixed(1) + '%';
+  const prefix = LOAD.count > 1 ? `[${LOAD.idx}/${LOAD.count}] ` : '';
+  if (LOAD.stage === '下载') {
+    txt.textContent = `${prefix}下载 ${mb(LOAD.cur)} / ${mb(LOAD.curTotal)}`;
+  } else {
+    txt.textContent = `${prefix}解压 ${LOAD.cur}/${LOAD.curTotal}`;
   }
 }
 
+function setControlsDisabled(d) {
+  for (const id of ['dl-btn', 'jump-btn', 'range-btn']) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = d;
+  }
+}
+
+// 下载并解压单个 zip；返回 {files, numMap, urls}
+async function loadZip(z) {
+  const url = getZipUrl(z);
+  if (!url) throw new Error('缺少下载地址');
+
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const len = parseInt(resp.headers.get('content-length') || '0', 10);
+  if (len) LOAD.curTotal = len;
+
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); received += value.length;
+    LOAD.stage = '下载'; LOAD.cur = received;
+    updateProgress();
+  }
+
+  LOAD.stage = '解压'; LOAD.cur = 0; LOAD.curTotal = 1;
+  updateProgress();
+
+  const jszip = await JSZip.loadAsync(new Blob(chunks));
+  const names = Object.keys(jszip.files).filter(
+    n => !n.endsWith('/') && /\.(jpe?g|png|gif|webp|bmp)$/i.test(n)
+  );
+  LOAD.curTotal = names.length || 1;
+
+  const files = [];
+  const urls = [];
+  const numMap = new Map();
+  for (let i = 0; i < names.length; i++) {
+    const b = await jszip.files[names[i]].async('blob');
+    const u = URL.createObjectURL(b);
+    urls.push(u);
+    const name = names[i].split('/').pop();
+    const num = extractNum(name);
+    const item = { num, name, url: u, zipName: z.zip_name };
+    files.push(item);
+    if (num > 0 && !numMap.has(num)) numMap.set(num, item);
+    LOAD.cur = i + 1;
+    if (i % 5 === 0 || i === names.length - 1) updateProgress();
+  }
+  files.sort((a, b) => a.num - b.num);
+  return { files, numMap, urls };
+}
+
+// 取包（优先缓存）；加载新包后按 LRU 回收旧包
+async function ensureZip(z) {
+  const name = z.zip_name;
+  if (ZIP_CACHE.has(name)) {                 // 命中：移到 Map 末尾表示最近使用
+    const e = ZIP_CACHE.get(name);
+    ZIP_CACHE.delete(name); ZIP_CACHE.set(name, e);
+    return e;
+  }
+  if (ZIP_INFLIGHT.has(name)) return ZIP_INFLIGHT.get(name);
+
+  const p = loadZip(z).finally(() => ZIP_INFLIGHT.delete(name));
+  ZIP_INFLIGHT.set(name, p);
+  const entry = await p;
+  ZIP_CACHE.set(name, entry);
+  evictCache();
+  return entry;
+}
+
+function evictCache() {
+  const keep = new Set(PROTECTED);
+  for (const f of CURRENT_LIST) keep.add(f.zipName);   // 正在展示的包不动
+  while (ZIP_CACHE.size > MAX_CACHE) {
+    let victim = null;
+    for (const k of ZIP_CACHE.keys()) {
+      if (!keep.has(k)) { victim = k; break; }
+    }
+    if (!victim) break;
+    for (const u of ZIP_CACHE.get(victim).urls) URL.revokeObjectURL(u);
+    ZIP_CACHE.delete(victim);
+  }
+}
+
+// 加载一组包（range 模式支持编号过滤），结束后渲染网格
+async function loadSelection(zips, filter, label, notify = true) {
+  if (BUSY) { toast('正在加载中，请稍候…', true); return null; }
+  BUSY = true;
+  setControlsDisabled(true);
+  PROTECTED = new Set(zips.map(z => z.zip_name));
+  LOAD = {
+    idx: 0, count: zips.length, stage: '下载',
+    cur: 0, curTotal: 0, zipBytes: 0, doneBytes: 0,
+    totalBytes: Math.max(1, zips.reduce((s, z) => s + (z.size_mb || 0) * 1048576, 0)),
+  };
+  showProgress();
+
+  try {
+    const all = [];
+    for (const z of zips) {
+      LOAD.idx++;
+      LOAD.stage = '下载'; LOAD.cur = 0;
+      LOAD.zipBytes = (z.size_mb || 0) * 1048576;
+      LOAD.curTotal = LOAD.zipBytes;
+      updateProgress();
+      const entry = await ensureZip(z);
+      LOAD.doneBytes += LOAD.zipBytes;
+      updateProgress();
+      all.push(...entry.files);
+    }
+    all.sort((a, b) => a.num - b.num);
+
+    let list = all;
+    if (filter) list = all.filter(f => f.num >= filter[0] && f.num <= filter[1]);
+    if (!list.length) { toast('该范围内没有图片', true); return null; }
+
+    renderGrid(list);
+    if (notify) toast(`✅ 已加载 ${list.length} 张（${label}）`);
+    return list;
+  } catch (e) {
+    toast('加载失败: ' + e.message, true);
+    return null;
+  } finally {
+    BUSY = false;
+    setControlsDisabled(false);
+    hideProgress();
+    PROTECTED = new Set();
+    LOAD = null;
+  }
+}
+
+// ===== 虚拟滚动网格 =====
+const VG = { cols: 1, tileW: 0, tileH: 0, gridTop: 0, live: new Map(), pool: [] };
+let gridScrollScheduled = false;
+
+function computeLayout() {
+  const grid = document.getElementById('grid');
+  const w = grid.clientWidth;
+  VG.cols = Math.max(1, Math.floor((w + GAP) / (TILE_MIN + GAP)));
+  VG.tileW = (w - (VG.cols - 1) * GAP) / VG.cols;
+  VG.tileH = VG.tileW * 4 / 3;
+  VG.gridTop = grid.getBoundingClientRect().top + window.scrollY;
+}
+
+function makeTile() {
+  const el = document.createElement('div');
+  el.className = 'thumb';
+  const img = document.createElement('img');
+  img.draggable = false; img.alt = '';
+  const num = document.createElement('div');
+  num.className = 'num';
+  el.append(img, num);
+  return el;
+}
+
+function fillTile(el, idx) {
+  const item = CURRENT_LIST[idx];
+  const row = Math.floor(idx / VG.cols);
+  const col = idx % VG.cols;
+  el.dataset.idx = idx;
+  el.style.left = (col * (VG.tileW + GAP)) + 'px';
+  el.style.top = (row * (VG.tileH + GAP)) + 'px';
+  el.style.width = VG.tileW + 'px';
+  el.style.height = VG.tileH + 'px';
+
+  const img = el.firstElementChild;
+  const num = el.lastElementChild;
+  num.textContent = 'No.' + item.num;
+  el.classList.remove('loaded');
+  img.onload = () => { el.classList.add('loaded'); img.onload = null; };
+  img.src = item.url;
+  if (img.complete && img.naturalWidth) {   // 缓存命中，立即显示
+    el.classList.add('loaded');
+    img.onload = null;
+  }
+}
+
+function updateVirtual() {
+  const grid = document.getElementById('grid');
+  const total = CURRENT_LIST.length;
+  const rows = Math.ceil(total / VG.cols);
+  const contentH = rows ? rows * (VG.tileH + GAP) - GAP : 0;
+  grid.style.height = contentH + 'px';
+
+  const viewTop = window.scrollY - VG.gridTop;
+  const viewBottom = viewTop + window.innerHeight;
+  const rowPx = VG.tileH + GAP;
+  const first = Math.max(0, Math.floor(viewTop / rowPx) - OVERSCAN_ROWS);
+  const last = Math.min(rows - 1, Math.ceil(viewBottom / rowPx) + OVERSCAN_ROWS);
+
+  const wanted = new Set();
+  for (let r = first; r <= last; r++) {
+    for (let c = 0; c < VG.cols; c++) {
+      const i = r * VG.cols + c;
+      if (i < total) wanted.add(i);
+    }
+  }
+
+  // 回收不可见瓦片
+  for (const [idx, el] of VG.live) {
+    if (!wanted.has(idx)) {
+      el.remove();
+      VG.live.delete(idx);
+      if (VG.pool.length < 80) VG.pool.push(el);
+    }
+  }
+  // 挂载新可见瓦片（优先复用池里的元素）
+  for (const idx of wanted) {
+    if (VG.live.has(idx)) continue;
+    const el = VG.pool.pop() || makeTile();
+    fillTile(el, idx);
+    grid.appendChild(el);
+    VG.live.set(idx, el);
+  }
+}
+
+function clearGrid() {
+  for (const [, el] of VG.live) {
+    el.remove();
+    if (VG.pool.length < 80) VG.pool.push(el);
+  }
+  VG.live.clear();
+}
+
+function renderGrid(list) {
+  CURRENT_LIST = list;
+  LB_IMAGES = list;
+
+  const infoEl = document.getElementById('grid-info');
+  infoEl.style.display = 'flex';
+  document.getElementById('grid-count').textContent = list.length;
+  const disp = list.filter(f => f.num > 0);
+  document.getElementById('grid-range').textContent = disp.length
+    ? `No.${disp[0].num} - No.${disp[disp.length - 1].num}` : '';
+
+  clearGrid();
+  computeLayout();
+  updateVirtual();
+  // 首帧后再校准一次（此时布局已稳定）
+  requestAnimationFrame(() => { computeLayout(); updateVirtual(); });
+}
+
+// 点击瓦片 → 打开放大层（事件委托，瓦片可复用）
+document.getElementById('grid').addEventListener('click', (e) => {
+  const tile = e.target.closest('.thumb');
+  if (!tile || tile.dataset.idx === undefined) return;
+  openLightbox(parseInt(tile.dataset.idx, 10));
+});
+
+window.addEventListener('scroll', () => {
+  if (gridScrollScheduled) return;
+  gridScrollScheduled = true;
+  requestAnimationFrame(() => { gridScrollScheduled = false; updateVirtual(); });
+}, { passive: true });
+
+window.addEventListener('resize', () => {
+  if (!CURRENT_LIST.length) return;
+  computeLayout();
+  updateVirtual();
+});
 
 // ===== Lightbox =====
 let LB_NATURAL_W = 0, LB_NATURAL_H = 0;
@@ -443,7 +653,9 @@ const $NXT = () => document.getElementById('lb-next');
 const $IMG = () => document.getElementById('lb-img');
 
 function openLightbox(idx) {
-  LB_IDX = idx; LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
+  if (!LB_IMAGES.length) return;
+  LB_IDX = Math.max(0, Math.min(idx, LB_IMAGES.length - 1));
+  LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
   LB_ANIMATING = false;
   LB_SLIDE_TOKEN++;                    // 作废所有在途的翻页回调
   if (LB_SAFETY_TIMER) { clearTimeout(LB_SAFETY_TIMER); LB_SAFETY_TIMER = null; }
@@ -495,7 +707,7 @@ function updateLB() {
   $CUR().style.transform = 'translate(' + LB_TX + 'px, ' + LB_TY + 'px)';
   img.style.cursor = (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) ? 'zoom-in' : 'grab';
   document.getElementById('lb-info').textContent =
-    'No.' + extractNum(cur.filename) + ' (' + (LB_IDX+1) + '/' + LB_IMAGES.length + ') · ' + (LB_SCALE*100).toFixed(0) + '%';
+    'No.' + cur.num + ' (' + (LB_IDX+1) + '/' + LB_IMAGES.length + ') · ' + (LB_SCALE*100).toFixed(0) + '%';
 }
 
 function lbPrev() { if (LB_IDX > 0 && !LB_ANIMATING) slideTo(LB_IDX - 1); }
@@ -619,7 +831,7 @@ document.addEventListener('mousemove', (e) => {
   $CUR().style.transform = 'translate(' + LB_TX + 'px, ' + LB_TY + 'px)';
 });
 
-document.addEventListener('mouseup', (e) => {
+document.addEventListener('mouseup', () => {
   if (!DRAG.active) return;
   DRAG.active = false;
   $IMG().style.cursor =
@@ -649,7 +861,6 @@ document.getElementById('lb-img').addEventListener('wheel', (e) => {
 document.getElementById('lightbox').addEventListener('click', (e) => {
   if (e.target.id === 'lightbox') closeLightbox();
 });
-// 点击图片：适应窗口 ↔ 放大
 // 点击图片切换缩放（拖动后不触发）
 document.getElementById('lb-img').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -657,10 +868,22 @@ document.getElementById('lb-img').addEventListener('click', (e) => {
   toggleZoom();
 });
 
-document.getElementById('dl-btn').addEventListener('click', () => {
+// 下载并查看：当前下拉框选中的月份
+document.getElementById('dl-btn').addEventListener('click', async () => {
+  if (!INDEX) return;
   const sel = document.getElementById('zip-select');
   const zipInfo = INDEX.zips.find(z => z.zip_name === sel.value);
-  if (zipInfo) { CURRENT_ZIP = zipInfo; downloadZip(zipInfo); }
+  if (!zipInfo) return;
+  CURRENT_ZIP = zipInfo;
+
+  if (ZIP_CACHE.has(zipInfo.zip_name)) {      // 已缓存：直接展示
+    const e = ZIP_CACHE.get(zipInfo.zip_name);
+    ZIP_CACHE.delete(zipInfo.zip_name); ZIP_CACHE.set(zipInfo.zip_name, e);
+    renderGrid(e.files);
+    toast(`✅ 已加载 ${e.files.length} 张（${zipInfo.label} · 缓存）`);
+    return;
+  }
+  await loadSelection([zipInfo], null, zipInfo.label);
 });
 
 document.getElementById('zip-select').addEventListener('change', (e) => {
@@ -669,44 +892,80 @@ document.getElementById('zip-select').addEventListener('change', (e) => {
 });
 
 document.getElementById('jump-btn').addEventListener('click', jumpToNumber);
+document.getElementById('range-btn').addEventListener('click', browseRange);
 document.getElementById('jump-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') jumpToNumber();
 });
 
-function jumpToNumber() {
-  const val = parseInt(document.getElementById('jump-input').value);
-  if (!val) return toast('请输入编号', true);
-
-  // 找编号所在的 zip（用 range 判断）
-  const target = INDEX.zips.find(z => val >= z.range[0] && val <= z.range[1]);
-  if (!target) return toast(`编号 ${val} 不在范围内（No.${INDEX.range_min}-${INDEX.range_max}）`, true);
-
-  // 选中 zip
-  document.getElementById('zip-select').value = target.zip_name;
-  CURRENT_ZIP = target;
-
-  // 如果还没下载，下载后自动滚动/定位
-  if (!ZIP_CONTENTS || !ZIP_CONTENTS[`${val}.jpg`] && !ZIP_CONTENTS[`${val}.png`]) {
-    toast(`No.${val} 在 ${target.label}，开始下载...`);
-    downloadZip(target).then(() => {
-      // 下载完找到图片索引，打开 lightbox
-      const ext = ['jpg','jpeg','png','gif','webp'].find(
-        e => ZIP_CONTENTS[`${val}.${e}`]
-      );
-      if (ext) {
-        const fname = `${val}.${ext}`;
-        const idx = LB_IMAGES.findIndex(x => x.filename === fname);
-        if (idx >= 0) openLightbox(idx);
-      }
-    });
-  } else {
-    // 已下载，直接定位
-    const fname = Object.keys(ZIP_CONTENTS).find(n => extractNum(n) === val);
-    if (fname) {
-      const idx = LB_IMAGES.findIndex(x => x.filename === fname);
-      if (idx >= 0) openLightbox(idx);
-    }
+// 打开一张已加载列表里的图；编号不存在时定位到最近一张
+function openNearest(list, val) {
+  if (!list || !list.length) return;
+  let idx = list.findIndex(f => f.num === val);
+  if (idx < 0) {
+    idx = list.findIndex(f => f.num > val);
+    if (idx < 0) idx = list.length - 1;
+    toast(`No.${val} 不存在，已定位到最近的 No.${list[idx].num}`);
   }
+  openLightbox(idx);
+}
+
+// 编号直达：单个编号 → 找到所在包 → 打开对应图片
+async function jumpToNumber() {
+  if (!INDEX) return;
+  const raw = document.getElementById('jump-input').value.trim();
+  const m = raw.match(/^(\d+)/);
+  if (!m) return toast('请输入编号，如 7800', true);
+  const val = parseInt(m[1], 10);
+
+  if (INDEX.range_min != null && (val < INDEX.range_min || val > INDEX.range_max)) {
+    return toast(`No.${val} 超出收录范围（No.${INDEX.range_min}–${INDEX.range_max}）`, true);
+  }
+
+  // 已在当前列表 → 直接打开
+  const inCur = CURRENT_LIST.findIndex(f => f.num === val);
+  if (inCur >= 0) return openLightbox(inCur);
+
+  const owner = INDEX.zips.find(z => z.range && val >= z.range[0] && val <= z.range[1]);
+  if (owner) {
+    if (!ZIP_CACHE.has(owner.zip_name)) toast(`No.${val} 在 ${owner.label}，开始下载...`);
+    const list = await loadSelection([owner], null, owner.label, false);
+    if (list) openNearest(list, val);
+    return;
+  }
+
+  // 落在两个包之间的空档：跳到下一个包的第一张
+  const next = INDEX.zips
+    .filter(z => z.range && z.range[0] > val)
+    .sort((a, b) => a.range[0] - b.range[0])[0];
+  if (!next) return toast(`No.${val} 未收录`, true);
+  toast(`No.${val} 未收录，已跳到最近的 No.${next.range[0]}`);
+  const list = await loadSelection([next], null, next.label, false);
+  if (list) openNearest(list, next.range[0]);
+}
+
+// 范围浏览：编号段 → 自动串联覆盖范围内的所有包 → 只列出命中的图片
+async function browseRange() {
+  if (!INDEX) return;
+  const raw = document.getElementById('jump-input').value.trim();
+  let lo, hi;
+  const m = raw.match(/^(\d+)\s*[-~～—–]\s*(\d+)$/);
+  if (m) { lo = parseInt(m[1], 10); hi = parseInt(m[2], 10); if (lo > hi) [lo, hi] = [hi, lo]; }
+  else if (/^\d+$/.test(raw)) { return jumpToNumber(); }
+  else return toast('格式：7800 或 7600-7700', true);
+
+  if (hi - lo > 3000) return toast('范围过大（跨度过 3000 编号），请缩小后重试', true);
+
+  const covering = INDEX.zips.filter(z => z.range && z.range[1] >= lo && z.range[0] <= hi);
+  if (!covering.length) return toast(`No.${lo}–${hi} 均未收录`, true);
+
+  const estMB = covering.reduce((s, z) => s + (z.size_mb || 0), 0);
+  if (estMB > 900 && !window.confirm(
+    `No.${lo}–${hi} 需要下载 ${covering.length} 个包，合计约 ${Math.round(estMB)} MB。继续？`
+  )) return;
+
+  document.getElementById('zip-select').value = covering[0].zip_name;
+  CURRENT_ZIP = covering[0];
+  await loadSelection(covering, [lo, hi], `范围 No.${lo}–${hi}`);
 }
 
 // 启动
