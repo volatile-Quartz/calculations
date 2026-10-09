@@ -147,7 +147,6 @@
     will-change: transform;
     pointer-events: none;
   }
-  .lb-slide-img.animating { transition: transform 0.25s ease; }
   .lb-slide-img img {
     max-width: 90vw; max-height: 85vh;
     transform-origin: center center;
@@ -433,6 +432,9 @@ let LB_NATURAL_W = 0, LB_NATURAL_H = 0;
 let LB_FIT_SCALE = 1;
 let LB_TX = 0, LB_TY = 0;
 let LB_ANIMATING = false;
+// 每轮翻页自增一次；旧轮次的定时器/回调凭 token 自动作废，杜绝竞态
+let LB_SLIDE_TOKEN = 0;
+let LB_SAFETY_TIMER = null;
 
 let DRAG = { active:false, startX:0, startY:0, origX:0, origY:0, moved:false };
 
@@ -443,11 +445,15 @@ const $IMG = () => document.getElementById('lb-img');
 function openLightbox(idx) {
   LB_IDX = idx; LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
   LB_ANIMATING = false;
+  LB_SLIDE_TOKEN++;                    // 作废所有在途的翻页回调
+  if (LB_SAFETY_TIMER) { clearTimeout(LB_SAFETY_TIMER); LB_SAFETY_TIMER = null; }
   document.getElementById('lightbox').classList.add('show');
-  $NXT().style.display = 'none';
-  $NXT().style.transform = '';
-  $CUR().classList.remove('animating');
-  $CUR().style.transform = '';
+  const curBox = $CUR(), nxtBox = $NXT();
+  nxtBox.style.display = 'none';
+  nxtBox.style.transition = 'none';
+  nxtBox.style.transform = '';
+  curBox.style.transition = 'none';
+  curBox.style.transform = '';
   const img = $IMG();
   img.style.transform = '';
   img.onload = () => {
@@ -475,6 +481,7 @@ function fitToWindow() {
 }
 
 function toggleZoom() {
+  if (LB_ANIMATING) return;
   if (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) {
     LB_SCALE = Math.max(LB_FIT_SCALE * 2, 1);
   } else { LB_SCALE = LB_FIT_SCALE; }
@@ -491,57 +498,77 @@ function updateLB() {
     'No.' + extractNum(cur.filename) + ' (' + (LB_IDX+1) + '/' + LB_IMAGES.length + ') · ' + (LB_SCALE*100).toFixed(0) + '%';
 }
 
-function lbPrev() { if (LB_IDX > 0 && !LB_ANIMATING) slideTo(LB_IDX - 1, 'prev'); }
-function lbNext() { if (LB_IDX < LB_IMAGES.length - 1 && !LB_ANIMATING) slideTo(LB_IDX + 1, 'next'); }
+function lbPrev() { if (LB_IDX > 0 && !LB_ANIMATING) slideTo(LB_IDX - 1); }
+function lbNext() { if (LB_IDX < LB_IMAGES.length - 1 && !LB_ANIMATING) slideTo(LB_IDX + 1); }
 
-// 同时滑出+滑入
-function slideTo(newIdx, dir) {
+// 同时滑出+滑入；方向由索引差决定，不依赖外部传参
+function slideTo(newIdx) {
+  if (LB_ANIMATING || newIdx < 0 || newIdx >= LB_IMAGES.length) return;
   LB_ANIMATING = true;
+  if (LB_SAFETY_TIMER) { clearTimeout(LB_SAFETY_TIMER); LB_SAFETY_TIMER = null; }
+
+  const token = ++LB_SLIDE_TOKEN;      // 本轮令牌：旧轮一切回调凭它作废
   const curBox = $CUR();
   const nxtBox = $NXT();
   const nxtImg = document.getElementById('lb-img2');
 
-  // prev: 新图从左来(-100vw→0)，旧图向右出去(0→100vw)
-  // next: 新图从右来(100vw→0)，旧图向左出去(0→-100vw)
-  const startX = dir === 'prev' ? '-100vw' : '100vw';
-  const endX   = dir === 'prev' ? '100vw'  : '-100vw';
+  // 向后翻页(→)：新图从右侧来、旧图向左出
+  // 向前翻页(←)：新图从左侧来、旧图向右出
+  const forward = newIdx > LB_IDX;
+  const startX = forward ? '100vw' : '-100vw';
+  const endX   = forward ? '-100vw' : '100vw';
 
+  // 1) 无过渡地锁定初始状态
+  curBox.style.transition = 'none';
+  nxtBox.style.transition = 'none';
+  curBox.style.transform = 'translateX(0)';
   nxtBox.style.display = 'flex';
-  nxtImg.src = LB_IMAGES[newIdx].url;
-  nxtImg.style.transform = '';
   nxtBox.style.transform = 'translateX(' + startX + ')';
-  void nxtBox.offsetWidth; // reflow
+  nxtImg.style.transform = '';
+  nxtImg.src = LB_IMAGES[newIdx].url;
 
-  curBox.classList.add('animating');
-  nxtBox.classList.add('animating');
-  curBox.style.transform = 'translateX(' + endX + ')';
-  nxtBox.style.transform = 'translateX(0)';
+  // 2) 双 rAF 确保首帧已上屏，再启动过渡（比强制 reflow 更稳）
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (token !== LB_SLIDE_TOKEN) return;
+    const ease = 'transform 250ms ease';
+    curBox.style.transition = ease;
+    nxtBox.style.transition = ease;
+    curBox.style.transform = 'translateX(' + endX + ')';
+    nxtBox.style.transform = 'translateX(0)';
 
-  setTimeout(() => {
-    LB_IDX = newIdx;
-    const newSrc = nxtImg.src;
-    nxtImg.src = ''; nxtBox.style.display = 'none';
-    nxtBox.classList.remove('animating');
+    // 3) 过渡结束后交换身份
+    setTimeout(() => {
+      if (token !== LB_SLIDE_TOKEN) return;
+      LB_IDX = newIdx;
+      const newSrc = nxtImg.src;
 
-    const img = $IMG();
-    const finish = () => {
-      LB_NATURAL_W = img.naturalWidth;
-      LB_NATURAL_H = img.naturalHeight;
-      fitToWindow();
-      LB_ANIMATING = false;
-      updateNavDisabled();
-    };
-    img.onload = finish;                 // 先挂回调
-    img.style.transform = '';
-    img.src = newSrc;                    // 换成新图
-    // 再把容器瞬间复位回中心（此时已显示新图，不会闪旧图）
-    curBox.classList.remove('animating');
-    curBox.style.transform = '';
-    LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
+      const img = $IMG();
+      const finish = () => {
+        if (token !== LB_SLIDE_TOKEN) return;   // 旧轮不得干扰新轮
+        LB_NATURAL_W = img.naturalWidth;
+        LB_NATURAL_H = img.naturalHeight;
+        fitToWindow();
+        updateNavDisabled();
+        LB_ANIMATING = false;
+        if (LB_SAFETY_TIMER) { clearTimeout(LB_SAFETY_TIMER); LB_SAFETY_TIMER = null; }
+      };
+      img.onload = finish;
+      img.style.transform = '';
+      img.src = newSrc;
 
-    // 安全兜底：图片已在缓存/加载异常时确保解锁，避免按钮锁死
-    setTimeout(() => { if (LB_ANIMATING) finish(); }, 600);
-  }, 260);
+      // 无过渡复位，隐藏替身
+      nxtImg.src = '';
+      nxtBox.style.transition = 'none';
+      nxtBox.style.display = 'none';
+      nxtBox.style.transform = '';
+      curBox.style.transition = 'none';
+      curBox.style.transform = '';
+      LB_SCALE = 1; LB_ROTATE = 0; LB_TX = 0; LB_TY = 0;
+
+      // 兜底解锁（仅对本轮有效）
+      LB_SAFETY_TIMER = setTimeout(finish, 600);
+    }, 270);
+  }));
 }
 
 // 首/末张禁用对应箭头
@@ -554,6 +581,7 @@ function updateNavDisabled() {
 
 // 缩放：默认以视口中心为锚点；传入 clientX/clientY 时以光标为锚点
 function lbZoom(delta, clientX, clientY) {
+  if (LB_ANIMATING) return;             // 翻页动画期间不打断位移动画
   const base = LB_FIT_SCALE;
   const oldScale = LB_SCALE;
   const newScale = Math.max(base * 0.3, Math.min(base * 8, oldScale * (1 + delta)));
@@ -567,11 +595,12 @@ function lbZoom(delta, clientX, clientY) {
   LB_SCALE = newScale;
   updateLB();
 }
-function lbZoomReset() { LB_ROTATE = 0; fitToWindow(); }
-function lbRotate(deg) { LB_ROTATE += deg; updateLB(); }
+function lbZoomReset() { if (LB_ANIMATING) return; LB_ROTATE = 0; fitToWindow(); }
+function lbRotate(deg) { if (LB_ANIMATING) return; LB_ROTATE += deg; updateLB(); }
 
 // ===== 拖动 =====
 document.getElementById('lb-img').addEventListener('mousedown', (e) => {
+  if (LB_ANIMATING) return;
   if (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) return;
   e.preventDefault();
   DRAG.active = true; DRAG.moved = false;
