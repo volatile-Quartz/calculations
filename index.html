@@ -134,8 +134,10 @@
   }
   #lightbox.show { display: flex; }
   #lightbox img {
-    max-width: none; transition: transform 0.15s;
+    max-width: 90vw; max-height: 85vh;
+    transition: transform 0.2s ease;
     cursor: zoom-in; user-select: none; -webkit-user-drag: none;
+    object-fit: contain;
   }
   #lightbox img.zoomed { cursor: grab; }
   #lightbox img.zoomed:active { cursor: grabbing; }
@@ -161,6 +163,7 @@
   .lb-next { right: 24px; }
 
   .lb-toolbar {
+    z-index: 101;
     position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
     display: flex; gap: 10px; background: rgba(0,0,0,0.5);
     padding: 8px 14px; border-radius: 50px; backdrop-filter: blur(10px);
@@ -229,8 +232,8 @@
   <button class="lb-nav lb-next" onclick="lbNext()" title="下一张 (→)">›</button>
   <div class="lb-hint">← → 翻页 · ESC 关闭 · 滚轮缩放</div>
   <div class="lb-toolbar">
-    <button onclick="lbZoom(0.2)" title="缩小">−</button>
-    <button onclick="lbZoom(-0.2)" title="放大">+</button>
+    <button onclick="lbZoom(-0.15)" title="缩小">−</button>
+    <button onclick="lbZoom(0.15)" title="放大">+</button>
     <button onclick="lbZoomReset()" title="重置缩放">⟲</button>
     <button onclick="lbRotate(-90)" title="向左旋转">↺</button>
     <button onclick="lbRotate(90)" title="向右旋转">↻</button>
@@ -404,28 +407,80 @@ function renderGrid() {
   }
 }
 
+
 // ===== Lightbox =====
+let LB_NATURAL_W = 0, LB_NATURAL_H = 0;  // 图片原始尺寸
+let LB_FIT_SCALE = 1;                      // 适应窗口的缩放比
+
 function openLightbox(idx) {
   LB_IDX = idx; LB_SCALE = 1; LB_ROTATE = 0;
-  updateLB();
   document.getElementById('lightbox').classList.add('show');
+  const img = document.getElementById('lb-img');
+  // 等图片加载完取原始尺寸 → 计算适应窗口的缩放
+  img.onload = () => {
+    LB_NATURAL_W = img.naturalWidth;
+    LB_NATURAL_H = img.naturalHeight;
+    fitToWindow();
+  };
+  img.src = LB_IMAGES[LB_IDX].url;
 }
+
 function closeLightbox() {
   document.getElementById('lightbox').classList.remove('show');
+  const img = document.getElementById('lb-img');
+  img.onload = null; img.src = '';
 }
+
+// 适应浏览器窗口（保留原始宽高比）
+function fitToWindow() {
+  const img = document.getElementById('lb-img');
+  const vw = window.innerWidth * 0.9;
+  const vh = window.innerHeight * 0.85;
+  if (!LB_NATURAL_W) { LB_FIT_SCALE = 1; }
+  else {
+    LB_FIT_SCALE = Math.min(vw / LB_NATURAL_W, vh / LB_NATURAL_H, 1);
+  }
+  LB_SCALE = LB_FIT_SCALE;
+  updateLB();
+}
+
+// 图片点击：适应 ↔ 原始 大小
+function toggleZoom() {
+  if (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) {
+    // 现在是适应窗口 → 放大到原始（或 2 倍，取大的）
+    LB_SCALE = Math.max(LB_FIT_SCALE * 2, 1);
+  } else {
+    // 现在是放大状态 → 回到适应窗口
+    LB_SCALE = LB_FIT_SCALE;
+  }
+  updateLB();
+}
+
 function updateLB() {
   const img = document.getElementById('lb-img');
   const cur = LB_IMAGES[LB_IDX];
-  img.src = cur.url;
-  img.style.transform = `scale(${LB_SCALE}) rotate(${LB_ROTATE}deg)`;
+  img.style.transform = `rotate(${LB_ROTATE}deg) scale(${LB_SCALE / LB_FIT_SCALE})`;
+  img.style.cursor = (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) ? 'zoom-in' : 'zoom-out';
   document.getElementById('lb-info').textContent =
-    `No.${extractNum(cur.filename)} (${LB_IDX+1}/${LB_IMAGES.length})`;
+    `No.${extractNum(cur.filename)} (${LB_IDX+1}/${LB_IMAGES.length}) · ${(LB_SCALE*100).toFixed(0)}%`;
 }
-function lbPrev() { if (LB_IDX > 0) { LB_IDX--; LB_SCALE=1; LB_ROTATE=0; updateLB(); } }
-function lbNext() { if (LB_IDX < LB_IMAGES.length - 1) { LB_IDX++; LB_SCALE=1; LB_ROTATE=0; updateLB(); } }
-function lbZoom(delta) { LB_SCALE = Math.max(0.1, Math.min(8, LB_SCALE + delta)); updateLB(); }
-function lbZoomReset() { LB_SCALE = 1; LB_ROTATE = 0; updateLB(); }
-function lbRotate(deg) { LB_ROTATE = (LB_ROTATE + deg) % 360; updateLB(); }
+function lbPrev() { if (LB_IDX > 0) { LB_IDX--; LB_SCALE=1; LB_ROTATE=0; openLightbox(LB_IDX); } }
+function lbNext() { if (LB_IDX < LB_IMAGES.length - 1) { LB_IDX++; LB_SCALE=1; LB_ROTATE=0; openLightbox(LB_IDX); } }
+
+// 修复 1: 按钮和滚轮方向（滚轮 deltaY>0 是往下滚 → 缩小，正确方向）
+function lbZoom(delta) {
+  // delta: +0.1 表示"想放大"，-0.1 表示"想缩小"
+  const base = LB_FIT_SCALE;
+  const minS = base * 0.3, maxS = base * 8;
+  LB_SCALE = Math.max(minS, Math.min(maxS, LB_SCALE * (1 + delta)));
+  updateLB();
+}
+
+// 修复 6: 重置 = 适应窗口
+function lbZoomReset() { LB_ROTATE = 0; fitToWindow(); }
+
+// 修复 5: 旋转用累加不用模运算 → 360° 以上继续走
+function lbRotate(deg) { LB_ROTATE += deg; updateLB(); }
 
 // ===== 事件绑定 =====
 document.addEventListener('keydown', (e) => {
@@ -433,22 +488,27 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeLightbox();
   else if (e.key === 'ArrowLeft') lbPrev();
   else if (e.key === 'ArrowRight') lbNext();
-  else if (e.key === '+' || e.key === '=') lbZoom(-0.2);
-  else if (e.key === '-') lbZoom(0.2);
+  else if (e.key === '+' || e.key === '=') lbZoom(0.1);
+  else if (e.key === '-') lbZoom(-0.1);
   else if (e.key === 'r' || e.key === 'R') lbRotate(90);
-  else if (e.key === 'R') lbRotate(-90);
+  else if (e.key === 'l' || e.key === 'L') lbRotate(-90);
 });
 
 // 滚轮缩放（只在 lightbox 上）
 document.getElementById('lb-img').addEventListener('wheel', (e) => {
   e.preventDefault();
-  const delta = e.deltaY > 0 ? 0.1 : -0.1;
+  const delta = e.deltaY > 0 ? -0.1 : 0.1;  // 上滚放大，下滚缩小
   lbZoom(delta);
 }, { passive: false });
 
-// 点击 lightbox 背景关闭（点到图片本身不关闭，防止误操作）
+// 点击 lightbox 背景关闭
 document.getElementById('lightbox').addEventListener('click', (e) => {
   if (e.target.id === 'lightbox') closeLightbox();
+});
+// 点击图片：适应窗口 ↔ 放大
+document.getElementById('lb-img').addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleZoom();
 });
 
 document.getElementById('dl-btn').addEventListener('click', () => {
