@@ -1,6 +1,13 @@
 name: Sync Index
 
 # 扫描本仓库的 GitHub Releases，生成 index.json（前端 viewer 用）
+#
+# 核心：用 HTTP Range 只读取每个 zip 的「中央目录」（尾部数十 KB），
+# 拿到包内真实文件名与编号区间 —— 无需下载整个压缩包。
+# 15GB 的归档全量扫描也只需下载约 1MB。
+#
+# 结果按 asset_id 缓存在 index.json 里：发布新 Release 时只扫新包。
+#
 # 触发：手动 dispatch 或发布新 Release 时
 
 on:
@@ -25,58 +32,165 @@ jobs:
         REPO: ${{ github.repository }}
       run: |
         python3 - << 'PYEOF'
-        import json, os, re, subprocess, time, urllib.request
+        import json, os, re, struct, time, urllib.request
 
         REPO = os.environ["REPO"]
         TOKEN = os.environ.get("GH_TOKEN", "")
-        UA = "calc-index-gen/1.0"
+        UA = "calc-index-gen/2.0"
 
         def gh_get(url):
             headers = {"Accept": "application/vnd.github+json", "User-Agent": UA}
-            if TOKEN: headers["Authorization"] = f"Bearer {TOKEN}"
+            if TOKEN:
+                headers["Authorization"] = f"Bearer {TOKEN}"
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req) as r:
+            with urllib.request.urlopen(req, timeout=60) as r:
                 return json.loads(r.read())
 
-        print(f"🔍 Fetching releases for {REPO}...")
-        releases = gh_get(f"https://api.github.com/repos/{REPO}/releases?per_page=50")
+        # ---------- 只读 zip 尾部：解析中央目录，拿包内文件名 ----------
+        EOCD_SIG = b"PK\x05\x06"
+        ZIP64_LOC_SIG = b"PK\x06\x07"
 
+        def _open(url, headers):
+            req = urllib.request.Request(url, headers=headers)
+            return urllib.request.urlopen(req, timeout=120)
+
+        def _size(url):
+            try:
+                with _open(url, {"User-Agent": UA, "Range": "bytes=0-0"}) as r:
+                    cr = r.headers.get("Content-Range")
+                    if cr and "/" in cr:
+                        return int(cr.rsplit("/", 1)[-1])
+            except Exception:
+                pass
+            with _open(url, {"User-Agent": UA}) as r:
+                return int(r.headers["Content-Length"])
+
+        def _range(url, a, b):
+            with _open(url, {"User-Agent": UA, "Range": f"bytes={a}-{b}"}) as r:
+                return r.read()
+
+        def scan_zip(url):
+            """返回包内编号列表（升序）。仅下载尾部数十 KB。"""
+            size = _size(url)
+            tail_start = max(0, size - 65557)   # EOCD 最长 = 22 + 65535 注释
+            tail = _range(url, tail_start, size - 1)
+
+            i = tail.rfind(EOCD_SIG)
+            if i < 0:
+                raise ValueError("未找到 EOCD，可能不是标准 zip")
+
+            total = struct.unpack("<H", tail[i + 10:i + 12])[0]
+            cd_size, cd_off = struct.unpack("<II", tail[i + 12:i + 20])
+
+            # zip64：字段被填成 0xFFFF/0xFFFFFFFF 时改读 zip64 记录
+            if cd_off == 0xFFFFFFFF or cd_size == 0xFFFFFFFF or total == 0xFFFF:
+                zi = tail.rfind(ZIP64_LOC_SIG)
+                if zi < 0:
+                    raise ValueError("声称 zip64 但找不到定位器")
+                z64_off = struct.unpack("<Q", tail[zi + 8:zi + 16])[0]
+                z64 = _range(url, z64_off, z64_off + 55)
+                cd_size = struct.unpack("<Q", z64[40:48])[0]
+                cd_off  = struct.unpack("<Q", z64[48:56])[0]
+
+            cd = _range(url, cd_off, cd_off + cd_size - 1)
+
+            nums, p = [], 0
+            while p + 46 <= len(cd) and cd[p:p + 4] == b"PK\x01\x02":
+                n_len, e_len, c_len = struct.unpack("<HHH", cd[p + 28:p + 34])
+                name = cd[p + 46:p + 46 + n_len].decode("utf-8", "replace")
+                base = name.rsplit("/", 1)[-1]
+                if base and not base.startswith(".") and "__MACOSX" not in name:
+                    m = re.match(r"(\d+)", base)      # 与前端 extractNum 保持一致
+                    if m:
+                        nums.append(int(m.group(1)))
+                p += 46 + n_len + e_len + c_len
+
+            nums.sort()
+            return nums
+
+        # ---------- 复用上次结果，避免重复扫描未变动的包 ----------
+        cache = {}
+        try:
+            with open("index.json", encoding="utf-8") as f:
+                for z in json.load(f).get("zips", []):
+                    if z.get("range"):
+                        cache[str(z.get("asset_id"))] = z
+        except Exception:
+            pass
+
+        RANGE_IN_NAME = re.compile(r"(\d{3,6})\s*-\s*(\d{3,6})")
+
+        print(f"🔍 扫描 {REPO} 的 Releases ...")
         zips = []
-        for rel in releases:
-            for asset in rel["assets"]:
-                if not asset["name"].endswith(".zip"): continue
-                # 从文件名推断编号范围（快速但不精确，精确需要解压）
-                # 命名建议：calculations-2025-01.zip（有月份）
-                match = re.search(r'(\d{4})[-_](\d{2})', asset["name"])
-                year = match.group(1) if match else rel["tag_name"]
-                month = match.group(2) if match else "?"
+        for rel in gh_get(f"https://api.github.com/repos/{REPO}/releases?per_page=100"):
+            for a in rel.get("assets", []):
+                name = a["name"]
+                if not name.lower().endswith(".zip"):
+                    continue
 
-                zip_info = {
-                    "zip_name": asset["name"],
-                    "asset_id": str(asset["id"]),
-                    "size_mb": round(asset["size"] / 1024 / 1024, 1),
-                    "uploaded": asset["updated_at"],
-                    "label": f"{year}年{month}月" if match else asset["name"],
-                    "browser_url": asset["browser_download_url"],
-                    # range 和 count 留 null，下次可以写 Action 自动解压扫描编号
-                    "range": [0, 0],
-                    "count": 0,
-                }
-                zips.append(zip_info)
-                print(f"  {zip_info['label']}: {asset['name']} ({zip_info['size_mb']} MB)")
+                aid = str(a["id"])
+                size_mb = round(a["size"] / 1024 / 1024, 1)
+                rng, cnt, src = None, None, "unknown"
 
-        # 按标签名/文件名排序（倒序：最新在前）
-        zips.sort(key=lambda z: z["zip_name"], reverse=True)
+                old = cache.get(aid)
+                if old and old.get("uploaded") == a["updated_at"] and old.get("size_mb") == size_mb:
+                    rng, cnt, src = old.get("range"), old.get("count"), "cache"
+                else:
+                    try:
+                        nums = scan_zip(a["browser_download_url"])
+                        if nums:
+                            rng, cnt, src = [nums[0], nums[-1]], len(nums), "scan"
+                    except Exception as e:
+                        print(f"   ⚠️ 扫描失败 {name}: {e}")
+
+                # 兜底：文件名里自带编号区间（如 calc-7135-7149.zip）
+                if rng is None:
+                    m = RANGE_IN_NAME.search(name)
+                    if m:
+                        lo, hi = sorted((int(m.group(1)), int(m.group(2))))
+                        rng, src = [lo, hi], "filename"
+
+                if rng:
+                    label = f"No.{rng[0]}–{rng[1]}"
+                else:
+                    mm = re.search(r"(20\d{2})[-_]?(0[1-9]|1[0-2])", name)
+                    label = f"{mm.group(1)}年{mm.group(2)}月" if mm else name
+
+                zips.append({
+                    "zip_name": name,
+                    "asset_id": aid,
+                    "size_mb": size_mb,
+                    "uploaded": a["updated_at"],
+                    "label": label,
+                    "tag": rel["tag_name"],
+                    "range": rng,
+                    "count": cnt,
+                    "range_source": src,
+                    "browser_url": a["browser_download_url"],
+                })
+                shown = f"{cnt} 张" if cnt is not None else "张数未知"
+                print(f"   ✅ {label}: {name} ({size_mb} MB, {shown}, via {src})")
+
+        # 编号升序；无编号的排到最后
+        zips.sort(key=lambda z: (0, z["range"][0]) if z["range"] else (1, 0))
+
+        known = [z for z in zips if z["range"]]
+        total_count = sum(z["count"] for z in known if z["count"]) or None
 
         index = {
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "repo": REPO,
+            "range_min": min((z["range"][0] for z in known), default=None),
+            "range_max": max((z["range"][1] for z in known), default=None),
+            "total_count": total_count,
             "zips": zips,
         }
 
-        with open("index.json", "w") as f:
+        with open("index.json", "w", encoding="utf-8") as f:
             json.dump(index, f, indent=2, ensure_ascii=False)
-        print(f"✅ index.json 生成完成，共 {len(zips)} 个 zip")
+
+        print(f"✅ index.json 生成完成：{len(zips)} 个 zip，"
+              f"编号 No.{index['range_min']} - No.{index['range_max']}，共 {total_count} 张")
         PYEOF
 
     - name: Commit
@@ -85,7 +199,7 @@ jobs:
         git config user.email "github-actions@github.com"
         git add index.json
         if git diff --staged --quiet; then
-          echo "No changes."
+          echo "无变化，跳过提交。"
           exit 0
         fi
         git commit -m "chore: update index.json"
