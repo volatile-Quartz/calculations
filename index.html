@@ -344,7 +344,7 @@ function populateZips() {
     const rng = z.range ? `No.${p3(z.range[0])}–${p3(z.range[1])}` : '编号未知';
     let prefix = z.label || '';
     if (prefix === rng) prefix = '';        // label 与 rng 相同时不重复展示
-    // 编号分卷命名（如 scratch_00000-00099）不解析年月；仅旧月份命名的包显示年月
+    // 编号分卷命名（如 scratch_000-099）不解析年月；仅旧月份命名的包显示年月
     const isNumbered = /\d{3,6}\s*-\s*\d{3,6}/.test(z.zip_name);
     const mm = isNumbered ? null : z.zip_name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])/);
     if (mm) prefix = `${mm[1]}-${mm[2]}`;
