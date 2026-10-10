@@ -3,7 +3,7 @@
 编号递增的数学草稿纸归档，每 100 张一卷打包为 zip 发布，浏览器端按需下载、即时预览。
 
 - 在线地址：<https://volatile-quartz.github.io/scratch-paper-archive/>
-- 交互：缩略图网格（虚拟滚动）· 编号段两级筛选（千 → 百）· 编号定位 · 范围浏览（跨包自动串联、分批加载）· 月份两级筛选（年 → 月）· 点击放大 · 翻页 / 拖动 / 滚轮缩放 / 旋转
+- 交互：缩略图网格（虚拟滚动）· 编号段两级筛选（千 → 百）· 编号定位 · 范围浏览（跨包自动串联）· 月份两级筛选（年 → 月）· **按需加载（看哪张取哪张，无需下载整包）** · 点击放大 · 翻页 / 拖动 / 滚轮缩放 / 旋转
 
 ## 架构
 
@@ -15,12 +15,13 @@
 │    用 HTTP Range 只读每个 zip 尾部的「中央目录」→ 拿到包内真实编号区间
 │    → 生成 index.json（按 asset_id 缓存，发布新包时只扫新包）
 │
-├─ 代理层：Cloudflare Worker（worker/worker.js）
-│    流式转发 Release 资源，绕开 Azure Blob 的 CORS 限制
+├─ 代理层：Cloudflare Worker（worker/worker.js v1.2+）
+│    /zip/… 整包流式代理（回退）；/range/… 透传 HTTP Range（按需读取）
 │
 └─ 前端：index.html（GitHub Pages）
      读 index.json + calendar.json → 编号段选择 / 月份查看 / 编号定位 / 范围浏览
-     → 经 Worker 按需下载 zip → JSZip 解压 → 虚拟滚动网格 → 点击放大
+     → 经 Worker 远程解 zip（Range 按需取单图；回退：整包 JSZip 解压）
+     → 虚拟滚动网格 → 点击放大
 ```
 
 ## 日常使用
@@ -56,6 +57,18 @@ cd worker
 wrangler secret put GITHUB_TOKEN   # 可选
 wrangler deploy
 ```
+
+## 按需加载（HTTP Range 远程解 zip）
+
+包不再需要整包下载。zip 的「中央目录」只有几 KB，查看器先经 Worker 读它建立条目表，
+之后**浏览到哪张图，就 Range 取那一张的字节**（DEFLATE 由浏览器自带
+`DecompressionStream` 解压），实测跳一张图只需约 0.1~6.5MB（整包 27~293MB）。
+
+- 前提：Worker 需为 **v1.2+**（新增 `/range/` 路由）。升级方式：Cloudflare 网页端
+  → Workers → 该 Worker → Edit code → 粘贴 `worker/worker.js` 全文 → Deploy
+- 查看器加载时自动探测 `/range/` 是否可用：可用则按钮显示「👁️ 查看（按需加载）」；
+  不可用自动回退整包下载模式（含分批加载），两条路径互不影响
+- 已看过的图片缓存在内存（上限约 600MB，LRU 自动回收）；放大层预取相邻 ±3 张，翻页无缝
 
 ## 为什么需要 Worker
 

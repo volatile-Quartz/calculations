@@ -39,6 +39,13 @@
   }
   #toast.show { opacity: 1; }
   #toast.error { background: var(--red); color: white; }
+  .thumb.error::after {
+    content: '⚠ 加载失败，点按重试';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--red); font-size: 12px;
+    background: rgba(15,17,21,.72);
+  }
 
   /* 主容器 */
   .app {
@@ -279,6 +286,7 @@ const TILE_MIN = 180;         // 缩略图最小宽度（与旧版网格一致�
 const GAP = 14;               // 瓦片间距
 const OVERSCAN_ROWS = 2;      // 视口外多渲染几行，滚动更顺滑
 const p3 = (n) => String(n).padStart(3, '0');   // 编号显示：不足 3 位补零（No.007 / No.233 / No.1754）
+let REMOTE_OK = false;        // Worker 支持按需读取（HTTP Range）时为 true
 
 // ===== 全局状态 =====
 let INDEX = null;
@@ -328,6 +336,7 @@ async function loadIndex() {
     }
     populateZips();
     populateMonths();
+    probeRemote();                       // 探测 Worker 是否支持按需读取（异步，不阻塞）
   } catch (e) {
     toast('加载索引失败: ' + e.message, true, 0);
   }
@@ -486,7 +495,7 @@ async function viewMonth() {
   if (!covering.length) return toast(`${label} 的编号段尚未收录`, true);
 
   const estMB = covering.reduce((s, z) => s + (z.size_mb || 0), 0);
-  if (estMB > 900 && !window.confirm(
+  if (!REMOTE_OK && estMB > 900 && !window.confirm(
     `${label} 需要下载 ${covering.length} 个包，合计约 ${Math.round(estMB)} MB。继续？`
   )) return;
 
@@ -623,6 +632,154 @@ function evictCache() {
   }
 }
 
+// ===== 远程 zip 按需读取（HTTP Range） =====
+// 原理：zip 的「中央目录」只有几 KB，先经 Worker 读它建立条目表，
+// 之后看哪张图就 Range 取那张图的字节（DEFLATE 用浏览器自带解压），不再整包下载。
+const RZ_DIRS = new Map();      // asset_id -> Promise<entries[]>（目录缓存，每包只取一次）
+const BLOB_LRU = new Map();     // file对象 -> {url, bytes}，最近使用在末尾
+let BLOB_BYTES = 0;
+const BLOB_MAX_BYTES = 600 * 1048576;
+const BLOB_MAX_COUNT = 500;
+
+function rangeUrl(z) { return `${WORKER_URL}/range/${INDEX.repo}/${z.asset_id}`; }
+
+async function fetchRange(z, start, end) {
+  const r = await fetch(rangeUrl(z), { headers: { Range: `bytes=${start}-${end}` } });
+  if (r.status !== 206) throw new Error('远端不支持按需读取(HTTP ' + r.status + ')');
+  return new Uint8Array(await r.arrayBuffer());
+}
+
+async function remoteSize(z) {
+  const r = await fetch(rangeUrl(z), { headers: { Range: 'bytes=0-0' } });
+  const cr = r.headers.get('Content-Range');
+  if (r.status === 206 && cr && cr.includes('/')) return parseInt(cr.rsplit('/').pop(), 10);
+  throw new Error('无法获取包大小');
+}
+
+function findSig(u8, sig) {           // 在 Uint8Array 里从后往前找 4 字节签名
+  const s = sig;
+  outer: for (let i = u8.length - 4; i >= 0; i--) {
+    for (let j = 0; j < 4; j++) if (u8[i + j] !== s[j]) continue outer;
+    return i;
+  }
+  return -1;
+}
+
+function parseCD(cd, z) {             // 解析中央目录 → 图片条目列表
+  const isImg = /\.(jpe?g|png|gif|webp|bmp)$/i;
+  const out = [];
+  let p = 0;
+  while (p + 46 <= cd.length && cd[p] === 0x50 && cd[p + 1] === 0x4B && cd[p + 2] === 0x01 && cd[p + 3] === 0x02) {
+    const dv = new DataView(cd.buffer, cd.byteOffset + p);
+    const method = dv.getUint16(10, true);
+    const csize = dv.getUint32(20, true);
+    const usize = dv.getUint32(24, true);
+    const nl = dv.getUint16(28, true);
+    const el = dv.getUint16(30, true);
+    const cl = dv.getUint16(32, true);
+    const off = dv.getUint32(42, true);
+    const name = new TextDecoder().decode(cd.subarray(p + 46, p + 46 + nl));
+    const base = name.split('/').pop();
+    if (!name.endsWith('/') && isImg.test(base) && !name.includes('__MACOSX') && !base.startsWith('.')) {
+      out.push({ name, num: extractNum(base), off, csize, usize, method, zip: z });
+    }
+    p += 46 + nl + el + cl;
+  }
+  return out;
+}
+
+function remoteDir(z) {
+  let p = RZ_DIRS.get(z.asset_id);
+  if (!p) {
+    p = (async () => {
+      const size = await remoteSize(z);
+      let tail = await fetchRange(z, Math.max(0, size - 2048), size - 1);
+      let i = findSig(tail, [0x50, 0x4B, 0x05, 0x06]);            // EOCD
+      if (i < 0) {
+        tail = await fetchRange(z, Math.max(0, size - 65557), size - 1);
+        i = findSig(tail, [0x50, 0x4B, 0x05, 0x06]);
+      }
+      if (i < 0) throw new Error('zip 目录定位失败');
+      const dv = new DataView(tail.buffer, tail.byteOffset + i);
+      const total = dv.getUint16(10, true);
+      const cdSize = dv.getUint32(12, true), cdOff = dv.getUint32(16, true);
+      if (cdOff === 0xFFFFFFFF || cdSize === 0xFFFFFFFF || total === 0xFFFF) throw new Error('zip64 暂不支持');
+      const cd = await fetchRange(z, cdOff, cdOff + cdSize - 1);
+      return parseCD(cd, z);
+    })().catch(e => { RZ_DIRS.delete(z.asset_id); throw e; });
+    RZ_DIRS.set(z.asset_id, p);
+  }
+  return p;
+}
+
+async function inflateRaw(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function rememberBlob(f, url, bytes) {
+  f.url = url;
+  BLOB_LRU.delete(f); BLOB_LRU.set(f, { url, bytes });
+  BLOB_BYTES += bytes;
+  while ((BLOB_LRU.size > BLOB_MAX_COUNT || BLOB_BYTES > BLOB_MAX_BYTES) && BLOB_LRU.size > 1) {
+    const [oldF, info] = BLOB_LRU.entries().next().value;
+    URL.revokeObjectURL(info.url);
+    BLOB_BYTES -= info.bytes;
+    oldF.url = null; oldF.promise = null;
+    BLOB_LRU.delete(oldF);
+  }
+}
+
+async function fetchRemoteImage(f) {
+  const entries = await remoteDir(f.zip);
+  const e = entries.find(x => x.name === f.name);
+  if (!e) throw new Error('包内找不到 ' + f.name);
+  const header = await fetchRange(f.zip, e.off, e.off + 29);
+  const hd = new DataView(header.buffer, header.byteOffset);
+  if (hd.getUint32(0, true) !== 0x04034b50) throw new Error('本地头校验失败');
+  const nl = hd.getUint16(26, true), el = hd.getUint16(28, true);
+  const start = e.off + 30 + nl + el;
+  const bytes = await fetchRange(f.zip, start, start + e.csize - 1);
+  const data = e.method === 8 ? await inflateRaw(bytes) : bytes;
+  const url = URL.createObjectURL(new Blob([data]));
+  rememberBlob(f, url, data.byteLength);
+  return url;
+}
+
+// 取图片 URL（懒加载统一入口；整包模式已有 url 则直接返回）
+function fileUrl(f) {
+  if (f.url) {
+    const e = BLOB_LRU.get(f);
+    if (e) { BLOB_LRU.delete(f); BLOB_LRU.set(f, e); }   // 触碰 LRU
+    return Promise.resolve(f.url);
+  }
+  if (!f.promise) {
+    f.promise = fetchRemoteImage(f).catch(err => { f.promise = null; throw err; });
+  }
+  return f.promise;
+}
+
+async function probeRemote() {
+  if (!WORKER_URL || !INDEX || !INDEX.zips || !INDEX.zips.length) return;
+  const z = INDEX.zips.find(x => x.asset_id);
+  if (!z) return;
+  try {
+    const r = await fetch(rangeUrl(z), { headers: { Range: 'bytes=0-15' } });
+    if (r.status === 206) {
+      const buf = new Uint8Array(await r.arrayBuffer());
+      if (buf[0] === 0x50 && buf[1] === 0x4B) REMOTE_OK = true;   // PK = 合法 zip 头
+    }
+  } catch (e) { /* 按需读取不可用，保持整包模式 */ }
+  updateDlLabel();
+  if (REMOTE_OK) toast('✅ 已启用按需加载：查看某张图只下载那张', false);
+}
+
+function updateDlLabel() {
+  const b = document.getElementById('dl-btn');
+  if (b) b.textContent = REMOTE_OK ? '👁️ 查看（按需加载）' : '📥 下载并查看';
+}
+
 // 下载一组包（带进度条，串行），返回合并后的文件列表
 async function downloadZips(zips) {
   LOAD = {
@@ -646,10 +803,43 @@ async function downloadZips(zips) {
   return out;
 }
 
-// 加载一组包（range 模式支持编号过滤）；多卷走分批加载
+// 按需读取：只取各包目录（约 10KB/包）建立条目表，图片浏览到才取
+async function tryLoadRemote(zips, filter, label, notify) {
+  BUSY = true;
+  setControlsDisabled(true);
+  try {
+    const list = [];
+    for (const z of zips) {
+      const entries = await remoteDir(z);
+      for (const e of entries) {
+        list.push({ num: e.num, name: e.name, zipName: z.zip_name, zip: z, url: null, promise: null });
+      }
+    }
+    list.sort((a, b) => a.num - b.num);
+    const filtered = filter ? list.filter(f => filter.some(r => f.num >= r[0] && f.num <= r[1])) : list;
+    if (!filtered.length) { toast('该范围内没有图片', true); return filtered; }
+    renderGrid(filtered);
+    if (notify) toast(`✅ 已就绪 ${filtered.length} 张 · 按需加载（浏览到哪张取哪张）`);
+    return filtered;
+  } catch (e) {
+    REMOTE_OK = false;
+    updateDlLabel();
+    toast('按需读取不可用（' + e.message + '），改用整包下载', true);
+    return null;
+  } finally {
+    BUSY = false;
+    setControlsDisabled(false);
+  }
+}
+
+// 加载一组包：优先按需读取（远程解 zip 单图）；不可用时回退整包下载
 async function loadSelection(zips, filter, label, notify = true) {
   if (BUSY) { toast('正在加载中，请稍候…', true); return null; }
   cancelIncremental();                       // 任何新选择都作废旧的分批会话
+  if (REMOTE_OK) {
+    const r = await tryLoadRemote(zips, filter, label, notify);
+    if (r !== null) return r;                // null = 按需读取失败，走整包回退
+  }
   if (zips.length >= 2) return startIncremental(zips, filter, label, notify);
 
   BUSY = true;
@@ -803,12 +993,16 @@ function fillTile(el, idx) {
   const num = el.lastElementChild;
   num.textContent = 'No.' + p3(item.num);
   el.classList.remove('loaded');
+  el.classList.remove('error');
   img.onload = () => { el.classList.add('loaded'); img.onload = null; };
-  img.src = item.url;
-  if (img.complete && img.naturalWidth) {   // 缓存命中，立即显示
-    el.classList.add('loaded');
-    img.onload = null;
-  }
+  const myIdx = String(idx);
+  fileUrl(item).then(u => {
+    if (el.dataset.idx !== myIdx || !el.isConnected) return;   // 瓦片已被复用/回收
+    img.src = u;
+    if (img.complete && img.naturalWidth) { el.classList.add('loaded'); img.onload = null; }
+  }).catch(() => {
+    if (el.dataset.idx === myIdx) el.classList.add('error');
+  });
 }
 
 function updateVirtual() {
@@ -932,7 +1126,25 @@ function openLightbox(idx) {
     fitToWindow();
     updateNavDisabled();
   };
-  img.src = LB_IMAGES[LB_IDX].url;
+  const item = LB_IMAGES[LB_IDX];
+  const myIdx = LB_IDX;
+  document.getElementById('lb-info').textContent =
+    `No.${p3(item.num)} (${myIdx+1}/${LB_IMAGES.length}) · 加载中…`;
+  fileUrl(item).then(u => {
+    if (LB_IDX !== myIdx) return;      // 已切到别的图
+    img.src = u;
+  }).catch(() => {
+    if (LB_IDX === myIdx) document.getElementById('lb-info').textContent = '图片加载失败';
+  });
+  prefetchAround(myIdx);
+}
+
+// 后台预取相邻几张，翻页即点即有
+function prefetchAround(i) {
+  for (const d of [-3, -2, -1, 1, 2, 3]) {
+    const j = i + d;
+    if (j >= 0 && j < LB_IMAGES.length) fileUrl(LB_IMAGES[j]).catch(() => {});
+  }
 }
 
 function closeLightbox() {
@@ -988,17 +1200,19 @@ function slideTo(newIdx) {
   const startX = forward ? '100vw' : '-100vw';
   const endX   = forward ? '-100vw' : '100vw';
 
-  // 1) 无过渡地锁定初始状态
-  curBox.style.transition = 'none';
-  nxtBox.style.transition = 'none';
-  curBox.style.transform = 'translateX(0)';
-  nxtBox.style.display = 'flex';
-  nxtBox.style.transform = 'translateX(' + startX + ')';
-  nxtImg.style.transform = '';
-  nxtImg.src = LB_IMAGES[newIdx].url;
+  // 1) 无过渡地锁定初始状态（按需模式：先取到图再开演动画）
+  fileUrl(LB_IMAGES[newIdx]).then(u => {
+    if (token !== LB_SLIDE_TOKEN) return;          // 期间已发起更新的翻页
+    curBox.style.transition = 'none';
+    nxtBox.style.transition = 'none';
+    curBox.style.transform = 'translateX(0)';
+    nxtBox.style.display = 'flex';
+    nxtBox.style.transform = 'translateX(' + startX + ')';
+    nxtImg.style.transform = '';
+    nxtImg.src = u;
 
-  // 2) 双 rAF 确保首帧已上屏，再启动过渡（比强制 reflow 更稳）
-  requestAnimationFrame(() => requestAnimationFrame(() => {
+    // 2) 双 rAF 确保首帧已上屏，再启动过渡（比强制 reflow 更稳）
+    requestAnimationFrame(() => requestAnimationFrame(() => {
     if (token !== LB_SLIDE_TOKEN) return;
     const ease = 'transform 250ms ease';
     curBox.style.transition = ease;
@@ -1038,7 +1252,13 @@ function slideTo(newIdx) {
       // 兜底解锁（仅对本轮有效）
       LB_SAFETY_TIMER = setTimeout(finish, 600);
     }, 270);
-  }));
+    }));
+  }).catch(() => {
+    if (token === LB_SLIDE_TOKEN) {
+      LB_ANIMATING = false;
+      toast('图片加载失败', true);
+    }
+  });
 }
 
 // 首/末张禁用对应箭头
@@ -1218,7 +1438,7 @@ async function browseRange() {
   if (!covering.length) return toast(`No.${p3(lo)}–${p3(hi)} 均未收录`, true);
 
   const estMB = covering.reduce((s, z) => s + (z.size_mb || 0), 0);
-  if (estMB > 900 && !window.confirm(
+  if (!REMOTE_OK && estMB > 900 && !window.confirm(
     `No.${p3(lo)}–${p3(hi)} 需要下载 ${covering.length} 个包，合计约 ${Math.round(estMB)} MB。继续？`
   )) return;
 
