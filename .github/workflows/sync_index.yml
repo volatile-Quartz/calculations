@@ -160,6 +160,7 @@ jobs:
                 zips.append({
                     "zip_name": name,
                     "asset_id": aid,
+                    "size": a["size"],          # 精确字节数：前端按需读取定位 zip 尾部/EOCD 用（免读响应头）
                     "size_mb": size_mb,
                     "uploaded": a["updated_at"],
                     "label": label,

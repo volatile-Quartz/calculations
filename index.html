@@ -647,17 +647,11 @@ function rangeUrl(z, bytes) {
   return `${WORKER_URL}/range/${INDEX.repo}/${z.asset_id}${bytes ? `?bytes=${bytes}` : ''}`;
 }
 
-async function fetchRange(z, start, end) {
-  const r = await fetch(rangeUrl(z, `${start}-${end}`));
+async function fetchRange(z, spec) {
+  // spec 形如 '0-15'、'12345-67890'，或开放区间 '1000-'（不确定大小时用）
+  const r = await fetch(rangeUrl(z, spec));
   if (r.status !== 206) throw new Error('远端不支持按需读取(HTTP ' + r.status + ')');
   return new Uint8Array(await r.arrayBuffer());
-}
-
-async function remoteSize(z) {
-  const r = await fetch(rangeUrl(z, '0-0'));
-  const cr = r.headers.get('Content-Range');
-  if (r.status === 206 && cr && cr.includes('/')) return parseInt(cr.split('/').pop(), 10);
-  throw new Error('无法获取包大小');
 }
 
 function findSig(u8, sig) {           // 在 Uint8Array 里从后往前找 4 字节签名
@@ -696,19 +690,21 @@ function remoteDir(z) {
   let p = RZ_DIRS.get(z.asset_id);
   if (!p) {
     p = (async () => {
-      const size = await remoteSize(z);
-      let tail = await fetchRange(z, Math.max(0, size - 2048), size - 1);
+      // 包大小优先用 index.json 里的精确字节数（不读响应头，绕开 CORS 暴露规则）；
+      // 旧索引缺该字段时按 size_mb 估算，用开放区间取尾部（多取一些也能找到 EOCD）
+      const exact = Number.isFinite(z.size);
+      const est = exact ? z.size : Math.max(1, Math.ceil((z.size_mb || 100) * 1048576));
+      const lo = Math.max(0, est - 65557 - (exact ? 0 : 131072));
+      let tail = await fetchRange(z, exact
+        ? `${lo}-${est - 1}`
+        : `${lo}-`);                                             // 开放区间，长度不敏感
       let i = findSig(tail, [0x50, 0x4B, 0x05, 0x06]);            // EOCD
-      if (i < 0) {
-        tail = await fetchRange(z, Math.max(0, size - 65557), size - 1);
-        i = findSig(tail, [0x50, 0x4B, 0x05, 0x06]);
-      }
       if (i < 0) throw new Error('zip 目录定位失败');
       const dv = new DataView(tail.buffer, tail.byteOffset + i);
       const total = dv.getUint16(10, true);
       const cdSize = dv.getUint32(12, true), cdOff = dv.getUint32(16, true);
       if (cdOff === 0xFFFFFFFF || cdSize === 0xFFFFFFFF || total === 0xFFFF) throw new Error('zip64 暂不支持');
-      const cd = await fetchRange(z, cdOff, cdOff + cdSize - 1);
+      const cd = await fetchRange(z, `${cdOff}-${cdOff + cdSize - 1}`);
       return parseCD(cd, z);
     })().catch(e => { RZ_DIRS.delete(z.asset_id); throw e; });
     RZ_DIRS.set(z.asset_id, p);
@@ -739,12 +735,12 @@ async function fetchRemoteImage(f) {
   const entries = await remoteDir(f.zip);
   const e = entries.find(x => x.name === f.name);
   if (!e) throw new Error('包内找不到 ' + f.name);
-  const header = await fetchRange(f.zip, e.off, e.off + 29);
+  const header = await fetchRange(f.zip, `${e.off}-${e.off + 29}`);
   const hd = new DataView(header.buffer, header.byteOffset);
   if (hd.getUint32(0, true) !== 0x04034b50) throw new Error('本地头校验失败');
   const nl = hd.getUint16(26, true), el = hd.getUint16(28, true);
   const start = e.off + 30 + nl + el;
-  const bytes = await fetchRange(f.zip, start, start + e.csize - 1);
+  const bytes = await fetchRange(f.zip, `${start}-${start + e.csize - 1}`);
   const data = e.method === 8 ? await inflateRaw(bytes) : bytes;
   const url = URL.createObjectURL(new Blob([data]));
   rememberBlob(f, url, data.byteLength);
