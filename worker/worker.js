@@ -1,10 +1,19 @@
-// Cloudflare Worker: GitHub Release Proxy  v1.2
+// Cloudflare Worker: GitHub Release Proxy  v1.2.1
 // 绕过 GitHub Releases 的 Azure CORS
 //   /zip/{owner}/{repo}/{asset_id}   整包流式代理（原行为，保留作回退）
-//   /range/{owner}/{repo}/{asset_id} 按需读取：解析 CDN 直链后透传 Range 请求
-//                                    （浏览器端远程解 zip 只取单张图片用）
+//   /range/{owner}/{repo}/{asset_id}?bytes=start-end
+//                                    按需读取：解析 CDN 直链后透传 Range 请求
+//                                    （浏览器端远程解 zip 只取单张图片用；
+//                                     用 query 传区间避免 CORS 预检）
 // 部署：Cloudflare 网页端粘贴本文件全部内容 → Deploy（或 wrangler deploy）
 // 环境变量：GITHUB_TOKEN（可选，避免匿名限流）
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Range',
+  'Access-Control-Max-Age': '86400',
+};
 
 // CDN 直链缓存（签名 URL 约 30 分钟内有效；过期靠 403 触发重解析）
 const CDN_CACHE = new Map();
@@ -19,6 +28,10 @@ function passthrough(up) {
   h['Access-Control-Allow-Origin'] = '*';
   if (!h['Cache-Control']) h['Cache-Control'] = 'public, max-age=86400';
   return new Response(up.body, { status: up.status, headers: h });
+}
+
+function err(status, message) {
+  return new Response(message, { status, headers: { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' } });
 }
 
 async function apiAssetUrl(owner, repo, assetId, env) {
@@ -41,7 +54,10 @@ async function apiAssetUrl(owner, repo, assetId, env) {
 // Range 路由：最多尝试 2 次（直链过期 403 时重解析一次）
 async function handleRange(request, env, owner, repo, assetId) {
   const key = `${owner}/${repo}/${assetId}`;
-  const range = request.headers.get('Range');
+  // 区间优先从 query 读（避免 CORS 预检）；也兼容标准 Range 头
+  const range = new URL(request.url).searchParams.get('bytes')
+    ? `bytes=${new URL(request.url).searchParams.get('bytes')}`
+    : request.headers.get('Range');
 
   for (let attempt = 0; attempt < 2; attempt++) {
     let cdn = CDN_CACHE.get(key);
@@ -65,16 +81,18 @@ async function handleRange(request, env, owner, repo, assetId) {
 
 export default {
   async fetch(request, env, ctx) {
+    // CORS 预检（理论上 query 方案不会触发，但兜个底）
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS });
+    }
+
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/+/, '');
     const parts = path.split('/');
     const route = parts[0];
 
     if ((route !== 'zip' && route !== 'range') || parts.length < 4) {
-      return new Response(
-        'Usage: /zip/{owner}/{repo}/{asset_id}    (full download)\n  or: /range/{owner}/{repo}/{asset_id}  (HTTP Range passthrough)',
-        { status: 400 }
-      );
+      return err(400, 'Usage: /zip/{owner}/{repo}/{asset_id}    (full download)\n  or: /range/{owner}/{repo}/{asset_id}?bytes=start-end  (HTTP Range passthrough)');
     }
     const [, owner, repo, assetId] = parts;
 
@@ -92,7 +110,7 @@ export default {
       const resp = await fetch(apiUrl, { headers });
       if (!resp.ok) {
         const body = await resp.text();
-        return new Response(`GitHub API ${resp.status}: ${body}`, { status: resp.status });
+        return err(resp.status, `GitHub API ${resp.status}: ${body}`);
       }
 
       const fileName = resp.headers.get('content-disposition') || `attachment; filename="${assetId}.zip"`;
@@ -103,10 +121,11 @@ export default {
           'Content-Length': resp.headers.get('content-length') || '',
           'Content-Disposition': fileName,
           'Cache-Control': 'public, max-age=86400',
+          'Access-Control-Allow-Origin': '*',
         },
       });
     } catch (e) {
-      return new Response(`Worker error: ${e.message}`, { status: 500 });
+      return err(500, `Worker error: ${e.message}`);
     }
   },
 };

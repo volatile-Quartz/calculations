@@ -641,18 +641,21 @@ let BLOB_BYTES = 0;
 const BLOB_MAX_BYTES = 600 * 1048576;
 const BLOB_MAX_COUNT = 500;
 
-function rangeUrl(z) { return `${WORKER_URL}/range/${INDEX.repo}/${z.asset_id}`; }
+function rangeUrl(z, bytes) {
+  // 区间放 query 而非 Range 头：普通 GET 请求，不触发 CORS 预检
+  return `${WORKER_URL}/range/${INDEX.repo}/${z.asset_id}${bytes ? `?bytes=${bytes}` : ''}`;
+}
 
 async function fetchRange(z, start, end) {
-  const r = await fetch(rangeUrl(z), { headers: { Range: `bytes=${start}-${end}` } });
+  const r = await fetch(rangeUrl(z, `${start}-${end}`));
   if (r.status !== 206) throw new Error('远端不支持按需读取(HTTP ' + r.status + ')');
   return new Uint8Array(await r.arrayBuffer());
 }
 
 async function remoteSize(z) {
-  const r = await fetch(rangeUrl(z), { headers: { Range: 'bytes=0-0' } });
+  const r = await fetch(rangeUrl(z, '0-0'));
   const cr = r.headers.get('Content-Range');
-  if (r.status === 206 && cr && cr.includes('/')) return parseInt(cr.rsplit('/').pop(), 10);
+  if (r.status === 206 && cr && cr.includes('/')) return parseInt(cr.split('/').pop(), 10);
   throw new Error('无法获取包大小');
 }
 
@@ -765,7 +768,7 @@ async function probeRemote() {
   const z = INDEX.zips.find(x => x.asset_id);
   if (!z) return;
   try {
-    const r = await fetch(rangeUrl(z), { headers: { Range: 'bytes=0-15' } });
+    const r = await fetch(rangeUrl(z, '0-15'));
     if (r.status === 206) {
       const buf = new Uint8Array(await r.arrayBuffer());
       if (buf[0] === 0x50 && buf[1] === 0x4B) REMOTE_OK = true;   // PK = 合法 zip 头
