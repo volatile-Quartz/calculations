@@ -271,6 +271,7 @@ const MAX_CACHE = 3;          // 内存里最多保留几个「已解压」的�
 const TILE_MIN = 180;         // 缩略图最小宽度（与旧版网格一致）
 const GAP = 14;               // 瓦片间距
 const OVERSCAN_ROWS = 2;      // 视口外多渲染几行，滚动更顺滑
+const p3 = (n) => String(n).padStart(3, '0');   // 编号显示：不足 3 位补零（No.007 / No.233 / No.1754）
 
 // ===== 全局状态 =====
 let INDEX = null;
@@ -309,6 +310,10 @@ async function loadIndex() {
       fetch('calendar.json').catch(() => null),
     ]);
     INDEX = await idxResp.json();
+    // 编号显示统一补零（sync 生成的 label 形如 No.0–99）
+    (INDEX.zips || []).forEach(z => {
+      if (z.label) z.label = z.label.replace(/No\.(\d+)([–-])(\d+)/, (_, a, sep, b) => `No.${p3(+a)}${sep}${p3(+b)}`);
+    });
     if (calResp && calResp.ok) {
       try { CALENDAR = (await calResp.json()).months || []; } catch (e) { CALENDAR = []; }
     }
@@ -331,10 +336,10 @@ function populateZips() {
   const sorted = [...INDEX.zips].sort((a, b) => (b.range?.[0] ?? -1) - (a.range?.[0] ?? -1));
   for (const z of sorted) {
     const opt = document.createElement('option');
-    const rng = z.range ? `No.${z.range[0]}–${z.range[1]}` : '编号未知';
+    const rng = z.range ? `No.${p3(z.range[0])}–${p3(z.range[1])}` : '编号未知';
     let prefix = z.label || '';
     if (prefix === rng) prefix = '';        // label 与 rng 相同时不重复展示
-    // 编号分卷命名（如 scratch-0000-0099）不解析年月；仅旧月份命名的包显示年月
+    // 编号分卷命名（如 scratch_0000-0099）不解析年月；仅旧月份命名的包显示年月
     const isNumbered = /\d{3,6}\s*-\s*\d{3,6}/.test(z.zip_name);
     const mm = isNumbered ? null : z.zip_name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])/);
     if (mm) prefix = `${mm[1]}-${mm[2]}`;
@@ -348,14 +353,14 @@ function populateZips() {
   // 副标题：全库编号范围
   const sub = document.getElementById('subtitle');
   if (INDEX.range_min != null) {
-    sub.textContent = `按编号段 / 月份选择 · 按需下载 · 高清查看 · No.${INDEX.range_min} - No.${INDEX.range_max} · 共 ${INDEX.total_count ?? '?'} 张`;
+    sub.textContent = `按编号段 / 月份选择 · 按需下载 · 高清查看 · No.${p3(INDEX.range_min)} - No.${p3(INDEX.range_max)} · 共 ${INDEX.total_count ?? '?'} 张`;
   }
 
   // 输入框提示
   const ji = document.getElementById('jump-input');
   if (INDEX.range_min != null && INDEX.range_max != null) {
     const mid = Math.round((INDEX.range_min + INDEX.range_max) / 2);
-    ji.placeholder = `如 ${mid} 或 ${mid}-${mid + 100}`;
+    ji.placeholder = `如 ${p3(mid)} 或 ${p3(mid)}-${p3(mid + 100)}`;
   }
 }
 
@@ -617,7 +622,7 @@ function fillTile(el, idx) {
 
   const img = el.firstElementChild;
   const num = el.lastElementChild;
-  num.textContent = 'No.' + item.num;
+  num.textContent = 'No.' + p3(item.num);
   el.classList.remove('loaded');
   img.onload = () => { el.classList.add('loaded'); img.onload = null; };
   img.src = item.url;
@@ -683,7 +688,7 @@ function renderGrid(list) {
   document.getElementById('grid-count').textContent = list.length;
   const disp = list.filter(f => f.num > 0);
   document.getElementById('grid-range').textContent = disp.length
-    ? `No.${disp[0].num} - No.${disp[disp.length - 1].num}` : '';
+    ? `No.${p3(disp[0].num)} - No.${p3(disp[disp.length - 1].num)}` : '';
 
   clearGrid();
   computeLayout();
@@ -781,7 +786,7 @@ function updateLB() {
   $CUR().style.transform = 'translate(' + LB_TX + 'px, ' + LB_TY + 'px)';
   img.style.cursor = (Math.abs(LB_SCALE - LB_FIT_SCALE) < 0.01) ? 'zoom-in' : 'grab';
   document.getElementById('lb-info').textContent =
-    'No.' + cur.num + ' (' + (LB_IDX+1) + '/' + LB_IMAGES.length + ') · ' + (LB_SCALE*100).toFixed(0) + '%';
+    'No.' + p3(cur.num) + ' (' + (LB_IDX+1) + '/' + LB_IMAGES.length + ') · ' + (LB_SCALE*100).toFixed(0) + '%';
 }
 
 function lbPrev() { if (LB_IDX > 0 && !LB_ANIMATING) slideTo(LB_IDX - 1); }
@@ -979,7 +984,7 @@ function openNearest(list, val) {
   if (idx < 0) {
     idx = list.findIndex(f => f.num > val);
     if (idx < 0) idx = list.length - 1;
-    toast(`No.${val} 不存在，已定位到最近的 No.${list[idx].num}`);
+    toast(`No.${p3(val)} 不存在，已定位到最近的 No.${p3(list[idx].num)}`);
   }
   openLightbox(idx);
 }
@@ -993,7 +998,7 @@ async function jumpToNumber() {
   const val = parseInt(m[1], 10);
 
   if (INDEX.range_min != null && (val < INDEX.range_min || val > INDEX.range_max)) {
-    return toast(`No.${val} 超出收录范围（No.${INDEX.range_min}–${INDEX.range_max}）`, true);
+    return toast(`No.${p3(val)} 超出收录范围（No.${p3(INDEX.range_min)}–${p3(INDEX.range_max)}）`, true);
   }
 
   // 已在当前列表 → 直接打开
@@ -1002,7 +1007,7 @@ async function jumpToNumber() {
 
   const owner = INDEX.zips.find(z => z.range && val >= z.range[0] && val <= z.range[1]);
   if (owner) {
-    if (!ZIP_CACHE.has(owner.zip_name)) toast(`No.${val} 在 ${owner.label}，开始下载...`);
+    if (!ZIP_CACHE.has(owner.zip_name)) toast(`No.${p3(val)} 在 ${owner.label}，开始下载...`);
     const list = await loadSelection([owner], null, owner.label, false);
     if (list) openNearest(list, val);
     return;
@@ -1012,8 +1017,8 @@ async function jumpToNumber() {
   const next = INDEX.zips
     .filter(z => z.range && z.range[0] > val)
     .sort((a, b) => a.range[0] - b.range[0])[0];
-  if (!next) return toast(`No.${val} 未收录`, true);
-  toast(`No.${val} 未收录，已跳到最近的 No.${next.range[0]}`);
+  if (!next) return toast(`No.${p3(val)} 未收录`, true);
+  toast(`No.${p3(val)} 未收录，已跳到最近的 No.${p3(next.range[0])}`);
   const list = await loadSelection([next], null, next.label, false);
   if (list) openNearest(list, next.range[0]);
 }
@@ -1031,16 +1036,16 @@ async function browseRange() {
   if (hi - lo > 3000) return toast('范围过大（跨度过 3000 编号），请缩小后重试', true);
 
   const covering = INDEX.zips.filter(z => z.range && z.range[1] >= lo && z.range[0] <= hi);
-  if (!covering.length) return toast(`No.${lo}–${hi} 均未收录`, true);
+  if (!covering.length) return toast(`No.${p3(lo)}–${p3(hi)} 均未收录`, true);
 
   const estMB = covering.reduce((s, z) => s + (z.size_mb || 0), 0);
   if (estMB > 900 && !window.confirm(
-    `No.${lo}–${hi} 需要下载 ${covering.length} 个包，合计约 ${Math.round(estMB)} MB。继续？`
+    `No.${p3(lo)}–${p3(hi)} 需要下载 ${covering.length} 个包，合计约 ${Math.round(estMB)} MB。继续？`
   )) return;
 
   document.getElementById('zip-select').value = covering[0].zip_name;
   CURRENT_ZIP = covering[0];
-  await loadSelection(covering, [[lo, hi]], `范围 No.${lo}–${hi}`);
+  await loadSelection(covering, [[lo, hi]], `范围 No.${p3(lo)}–${p3(hi)}`);
 }
 
 // 启动
