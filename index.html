@@ -448,6 +448,7 @@ function populateMonths() {
     ySel.appendChild(opt);
   }
   ySel.onchange = populateMonthOptions;
+  if (ySel.options.length) ySel.selectedIndex = ySel.options.length - 1;   // 默认最近年份
   populateMonthOptions();
 }
 
