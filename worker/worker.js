@@ -1,4 +1,4 @@
-// Cloudflare Worker: GitHub Release Proxy  v1.2.2
+// Cloudflare Worker: GitHub Release Proxy  v1.2.3
 // 绕过 GitHub Releases 的 Azure CORS
 //   /zip/{owner}/{repo}/{asset_id}   整包流式代理（原行为，保留作回退）
 //   /range/{owner}/{repo}/{asset_id}?bytes=start-end
@@ -29,6 +29,9 @@ function passthrough(up) {
   }
   if (!h['Accept-Ranges']) h['Accept-Ranges'] = 'bytes';
   h['Access-Control-Allow-Origin'] = '*';
+  // 关键：/range 的 206 响应也走这里——必须同样暴露 Content-Range，
+  // 否则浏览器 JS 读不到它，前端会误判「无法获取包大小」而回退整包
+  h['Access-Control-Expose-Headers'] = CORS['Access-Control-Expose-Headers'];
   if (!h['Cache-Control']) h['Cache-Control'] = 'public, max-age=86400';
   return new Response(up.body, { status: up.status, headers: h });
 }
@@ -79,7 +82,7 @@ async function handleRange(request, env, owner, repo, assetId) {
     if (up.status === 403) { CDN_CACHE.delete(key); cdn = null; continue; } // 签名过期，重解析
     return passthrough(up);
   }
-  return new Response('upstream 403 after retry', { status: 502 });
+  return err(502, 'upstream 403 after retry');
 }
 
 export default {

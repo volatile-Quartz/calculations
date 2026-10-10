@@ -826,6 +826,7 @@ async function tryLoadRemote(zips, filter, label, notify) {
     if (notify) toast(`✅ 已就绪 ${filtered.length} 张 · 按需加载（浏览到哪张取哪张）`);
     return filtered;
   } catch (e) {
+    console.warn('[按需读取失败]', e && e.message || e);
     // 结构性错误（zip64 / 目录损坏）才永久关闭按需；网络抖动保留，下次再试
     if (/zip64|目录定位失败/.test(e.message)) {
       REMOTE_OK = false;
