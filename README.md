@@ -1,6 +1,6 @@
 # 📐 草稿纸查看器
 
-编号递增的数学草稿纸归档，按月打包为 zip 发布，浏览器端按需下载、即时预览。
+编号递增的数学草稿纸归档，每 100 张一卷打包为 zip 发布，浏览器端按需下载、即时预览。
 
 - 在线地址：<https://volatile-quartz.github.io/scratch-paper-archive/>
 - 交互：缩略图网格（虚拟滚动）· 编号定位 · 编号段范围浏览（跨包自动串联）· 点击放大 · 翻页 / 拖动 / 滚轮缩放 / 旋转
@@ -9,7 +9,7 @@
 
 ```text
 ┌─ 数据层：GitHub Releases（本仓库）
-│    calculations-YYYY-MM.zip（按月发布，包内图片按编号命名）
+│    scratch-XXXX-YYYY.zip（每 100 张一卷，包内图片按编号命名）
 │
 ├─ 索引层：sync_index workflow
 │    用 HTTP Range 只读每个 zip 尾部的「中央目录」→ 拿到包内真实编号区间
@@ -19,13 +19,14 @@
 │    流式转发 Release 资源，绕开 Azure Blob 的 CORS 限制
 │
 └─ 前端：index.html（GitHub Pages）
-     读 index.json → 月份选择 / 编号定位 / 范围浏览
+     读 index.json → 编号段选择 / 编号定位 / 范围浏览
      → 经 Worker 按需下载 zip → JSZip 解压 → 虚拟滚动网格 → 点击放大
 ```
 
 ## 日常使用
 
-1. **发布草稿纸**：在本仓库发 Release 并上传 zip，命名 `calculations-YYYY-MM.zip`
+1. **发布草稿纸**：在本仓库发 Release 并上传 zip，命名 `scratch-XXXX-YYYY.zip`
+   （每 100 张一卷，如 `scratch-0000-0099.zip`；编号补零到 4 位便于排序）
 2. **更新索引**：Actions → Sync Index → Run workflow
    （发布新 Release 时也会自动触发；编号区间靠扫描 zip 中央目录得到，无需解压）
 3. **访问**：<https://volatile-quartz.github.io/scratch-paper-archive/>
@@ -61,7 +62,7 @@ Worker 作为同源代理绕过该限制。Cloudflare Worker 免费档 10 万请
 
 ## 编号与分卷
 
-图片按递增编号命名，物理上按月分卷，包与包之间可能有缺号。前端支持：
+图片按递增编号命名（从 0 起），物理上**按编号分卷**：每 100 张一卷，命名 `scratch-XXXX-YYYY.zip`（如 `scratch-0000-0099.zip`），与日期无关——早期无日期的草稿（如 No.0–252）也能整齐归档。前端支持：
 
 - **编号定位**：输入 `7800` 直达该编号的图片；该编号不存在时定位到最近一张
 - **范围浏览**：输入 `7600-7700` 列出该段内的所有图片，跨包自动串联

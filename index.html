@@ -200,12 +200,12 @@
 
 <div class="app">
   <h1>📐 草稿纸查看器</h1>
-  <div class="subtitle" id="subtitle">按月选择 · 按需下载 · 高清查看</div>
+  <div class="subtitle" id="subtitle">按编号段选择 · 按需下载 · 高清查看</div>
 
   <!-- 控制面板 -->
   <div class="control">
     <div class="ctrl-group">
-      <div class="ctrl-label">月份</div>
+      <div class="ctrl-label">编号段</div>
       <select id="zip-select"></select>
     </div>
     <button id="dl-btn" class="btn">📥 下载并查看</button>
@@ -312,15 +312,17 @@ function populateZips() {
     return;
   }
 
-  // 按时间倒序（最新在前）
-  const sorted = [...INDEX.zips].sort((a, b) => (b.zip_name > a.zip_name ? 1 : -1));
+  // 按编号倒序（最新在前）
+  const sorted = [...INDEX.zips].sort((a, b) => (b.range?.[0] ?? -1) - (a.range?.[0] ?? -1));
   for (const z of sorted) {
     const opt = document.createElement('option');
     const rng = z.range ? `No.${z.range[0]}–${z.range[1]}` : '编号未知';
     let prefix = z.label || '';
     if (prefix === rng) prefix = '';        // label 与 rng 相同时不重复展示
-    const mm = z.zip_name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])/);
-    if (mm) prefix = `${mm[1]}-${mm[2]}`;   // 优先显示年月，比纯编号直观
+    // 编号分卷命名（如 scratch-0000-0099）不解析年月；仅旧月份命名的包显示年月
+    const isNumbered = /\d{3,6}\s*-\s*\d{3,6}/.test(z.zip_name);
+    const mm = isNumbered ? null : z.zip_name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])/);
+    if (mm) prefix = `${mm[1]}-${mm[2]}`;
     const cnt = (z.count != null) ? `${z.count} 张` : '张数未知';
     opt.value = z.zip_name;
     opt.textContent = [prefix, rng, cnt, `${z.size_mb}MB`].filter(Boolean).join(' · ');
@@ -331,7 +333,7 @@ function populateZips() {
   // 副标题：全库编号范围
   const sub = document.getElementById('subtitle');
   if (INDEX.range_min != null) {
-    sub.textContent = `按月选择 · 按需下载 · 高清查看 · No.${INDEX.range_min} - No.${INDEX.range_max} · 共 ${INDEX.total_count ?? '?'} 张`;
+    sub.textContent = `按编号段选择 · 按需下载 · 高清查看 · No.${INDEX.range_min} - No.${INDEX.range_max} · 共 ${INDEX.total_count ?? '?'} 张`;
   }
 
   // 输入框提示
@@ -877,7 +879,7 @@ document.getElementById('lb-img').addEventListener('click', (e) => {
   toggleZoom();
 });
 
-// 下载并查看：当前下拉框选中的月份
+// 下载并查看：当前下拉框选中的编号段
 document.getElementById('dl-btn').addEventListener('click', async () => {
   if (!INDEX) return;
   const sel = document.getElementById('zip-select');
