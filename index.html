@@ -205,14 +205,18 @@
   <!-- 控制面板 -->
   <div class="control">
     <div class="ctrl-group">
-      <div class="ctrl-label">编号段</div>
-      <select id="zip-select"></select>
+      <div class="ctrl-label">编号段（千 → 百）</div>
+      <div style="display:flex;gap:8px;">
+        <select id="zip-k-select" title="先按千位分组"></select>
+        <select id="zip-select" title="再选百位分卷"></select>
+      </div>
     </div>
     <button id="dl-btn" class="btn">📥 下载并查看</button>
     <div class="ctrl-group">
-      <div class="ctrl-label">按月份查看</div>
+      <div class="ctrl-label">按月份查看（年 → 月）</div>
       <div style="display:flex;gap:8px;">
-        <select id="month-select"></select>
+        <select id="year-select" title="先选年份"></select>
+        <select id="month-select" title="再选月份"></select>
         <button id="month-btn" class="btn btn-secondary" title="列出该月内所有图片（跨包自动串联）">查看</button>
       </div>
     </div>
@@ -329,31 +333,48 @@ async function loadIndex() {
   }
 }
 
+function thousandOf(z) {
+  return z.range ? Math.floor(z.range[0] / 1000) : null;
+}
+
+function zipOptionText(z) {
+  const rng = z.range ? `No.${p3(z.range[0])}–${p3(z.range[1])}` : '编号未知';
+  let prefix = z.label || '';
+  if (prefix === rng) prefix = '';        // label 与 rng 相同时不重复展示
+  // 编号分卷命名（如 sp_000-099）不解析年月；仅旧月份命名的包显示年月
+  const isNumbered = /\d{3,6}\s*-\s*\d{3,6}/.test(z.zip_name);
+  const mm = isNumbered ? null : z.zip_name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])/);
+  if (mm) prefix = `${mm[1]}-${mm[2]}`;
+  const cnt = (z.count != null) ? `${z.count} 张` : '张数未知';
+  return { value: z.zip_name, text: [prefix, rng, cnt, `${z.size_mb}MB`].filter(Boolean).join(' · ') };
+}
+
 function populateZips() {
-  const sel = document.getElementById('zip-select');
-  sel.innerHTML = '';
+  const kSel = document.getElementById('zip-k-select');
   if (!INDEX.zips || !INDEX.zips.length) {
     toast('索引里还没有归档包：发布 Release 后运行 Sync Index 工作流', true, 0);
     return;
   }
 
-  // 按编号倒序（最新在前）
-  const sorted = [...INDEX.zips].sort((a, b) => (b.range?.[0] ?? -1) - (a.range?.[0] ?? -1));
-  for (const z of sorted) {
-    const opt = document.createElement('option');
-    const rng = z.range ? `No.${p3(z.range[0])}–${p3(z.range[1])}` : '编号未知';
-    let prefix = z.label || '';
-    if (prefix === rng) prefix = '';        // label 与 rng 相同时不重复展示
-    // 编号分卷命名（如 scratch_000-099）不解析年月；仅旧月份命名的包显示年月
-    const isNumbered = /\d{3,6}\s*-\s*\d{3,6}/.test(z.zip_name);
-    const mm = isNumbered ? null : z.zip_name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])/);
-    if (mm) prefix = `${mm[1]}-${mm[2]}`;
-    const cnt = (z.count != null) ? `${z.count} 张` : '张数未知';
-    opt.value = z.zip_name;
-    opt.textContent = [prefix, rng, cnt, `${z.size_mb}MB`].filter(Boolean).join(' · ');
-    sel.appendChild(opt);
+  // 第一级：按千位分组（倒序，最新在前），如 No.000–999 / No.1000–1999
+  const groups = new Map();
+  for (const z of INDEX.zips) {
+    const k = thousandOf(z);
+    if (k == null) continue;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(z);
   }
-  CURRENT_ZIP = sorted[0];
+  kSel.innerHTML = '';
+  for (const k of [...groups.keys()].sort((a, b) => b - a)) {
+    const list = groups.get(k);
+    const cnt = list.reduce((s, z) => s + (z.count || 0), 0);
+    const opt = document.createElement('option');
+    opt.value = String(k);
+    opt.textContent = `No.${p3(k * 1000)}–${p3(k * 1000 + 999)}（${list.length} 卷 · ${cnt} 张）`;
+    kSel.appendChild(opt);
+  }
+  kSel.onchange = populateHundredOptions;
+  populateHundredOptions();
 
   // 副标题：全库编号范围
   const sub = document.getElementById('subtitle');
@@ -369,29 +390,85 @@ function populateZips() {
   }
 }
 
-// ===== 月份查看 =====
-// 月份下拉：按年分组（数据来自 calendar.json；一个月份可对应多段编号区间）
-function populateMonths() {
-  const sel = document.getElementById('month-select');
-  if (!sel) return;
+// 第二级：当前千位段内的百级分卷（倒序）
+function populateHundredOptions() {
+  const kSel = document.getElementById('zip-k-select');
+  const sel = document.getElementById('zip-select');
+  const k = parseInt(kSel.value, 10);
+  const inK = INDEX.zips
+    .filter(z => thousandOf(z) === k)
+    .sort((a, b) => (b.range?.[0] ?? -1) - (a.range?.[0] ?? -1));
   sel.innerHTML = '';
-  let group = null;
+  for (const z of inK) {
+    const o = zipOptionText(z);
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.text;
+    sel.appendChild(opt);
+  }
+  CURRENT_ZIP = inK[0] || null;
+}
+
+// 跳转 / 范围 / 月份等流程程序化设定 zip-select 后，同步第一级千位选择
+function syncZipCascade() {
+  const sel = document.getElementById('zip-select');
+  const z = INDEX.zips.find(x => x.zip_name === sel.value);
+  if (!z) return;
+  const kSel = document.getElementById('zip-k-select');
+  const k = thousandOf(z);
+  if (k == null) return;
+  if (kSel.value !== String(k)) {
+    kSel.value = String(k);
+    populateHundredOptions();
+  }
+  sel.value = z.zip_name;
+}
+
+// ===== 月份查看（年 → 月两级联动）=====
+// 年级分组：label 无年份前缀的（高中時代 / 初期發展階段…）归入「早期」
+function populateMonths() {
+  const ySel = document.getElementById('year-select');
+  const mSel = document.getElementById('month-select');
+  if (!ySel || !mSel || !CALENDAR.length) return;
+
+  const groups = [];
+  const map = new Map();
   for (const m of CALENDAR) {
     const ym = String(m.label || '').match(/^(\d{4})/);
-    const gname = ym ? ym[1] : '早期';
-    if (!group || group.label !== gname) {
-      group = document.createElement('optgroup');
-      group.label = gname;
-      sel.appendChild(group);
-    }
+    const key = ym ? ym[1] : '早期';
+    if (!map.has(key)) { const g = { key, months: [] }; map.set(key, g); groups.push(g); }
+    map.get(key).months.push(m);
+  }
+  ySel.innerHTML = '';
+  for (const g of groups) {
+    const cnt = g.months.reduce((s, m) => s + (m.ranges || []).reduce((a, r) => a + Math.max(0, r[1] - r[0] + 1), 0), 0);
+    const opt = document.createElement('option');
+    opt.value = g.key;
+    opt.textContent = g.key === '早期' ? `早期（${cnt} 张）` : `${g.key} 年（${cnt} 张）`;
+    ySel.appendChild(opt);
+  }
+  ySel.onchange = populateMonthOptions;
+  populateMonthOptions();
+}
+
+// 第二级：当前年份（或早期）下的月份 / 时段
+function populateMonthOptions() {
+  const ySel = document.getElementById('year-select');
+  const mSel = document.getElementById('month-select');
+  const key = ySel.value;
+  const months = CALENDAR.filter(m => key === '早期'
+    ? !/^\d{4}/.test(String(m.label || ''))
+    : String(m.label || '').startsWith(key));
+  mSel.innerHTML = '';
+  for (const m of months) {
     const cnt = (m.ranges || []).reduce((s, r) => s + Math.max(0, r[1] - r[0] + 1), 0);
     const opt = document.createElement('option');
     opt.value = m.label;
     opt.textContent = cnt > 0 ? `${m.label} · ${cnt} 张` : `${m.label}（无）`;
     if (m.note) opt.title = m.note;
-    group.appendChild(opt);
+    mSel.appendChild(opt);
   }
-  if (sel.options.length) sel.selectedIndex = sel.options.length - 1;  // 默认最近月份
+  if (mSel.options.length) mSel.selectedIndex = mSel.options.length - 1;  // 默认最近月份
 }
 
 // 按月份查看：月份 → 编号区间（可多段）→ 串联覆盖的包 → 过滤显示
@@ -413,6 +490,7 @@ async function viewMonth() {
   )) return;
 
   document.getElementById('zip-select').value = covering[0].zip_name;
+  syncZipCascade();
   CURRENT_ZIP = covering[0];
   await loadSelection(covering, ranges, label);
 }
@@ -1144,6 +1222,7 @@ async function browseRange() {
   )) return;
 
   document.getElementById('zip-select').value = covering[0].zip_name;
+  syncZipCascade();
   CURRENT_ZIP = covering[0];
   await loadSelection(covering, [[lo, hi]], `范围 No.${p3(lo)}–${p3(hi)}`);
 }
