@@ -1,4 +1,4 @@
-// Cloudflare Worker: GitHub Release Proxy  v1.2.1
+// Cloudflare Worker: GitHub Release Proxy  v1.2.2
 // 绕过 GitHub Releases 的 Azure CORS
 //   /zip/{owner}/{repo}/{asset_id}   整包流式代理（原行为，保留作回退）
 //   /range/{owner}/{repo}/{asset_id}?bytes=start-end
@@ -13,6 +13,9 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Range',
   'Access-Control-Max-Age': '86400',
+  // 关键：Content-Range 不在浏览器 CORS 默认可读头白名单里，
+  // 不暴露的话前端拿不到「包大小」（remoteSize 会误判失败回退整包）
+  'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Content-Disposition, Accept-Ranges',
 };
 
 // CDN 直链缓存（签名 URL 约 30 分钟内有效；过期靠 403 触发重解析）
@@ -122,6 +125,7 @@ export default {
           'Content-Disposition': fileName,
           'Cache-Control': 'public, max-age=86400',
           'Access-Control-Allow-Origin': '*',
+          'Access-Control-Expose-Headers': CORS['Access-Control-Expose-Headers'],
         },
       });
     } catch (e) {

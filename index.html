@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>📐 草稿纸查看器</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📐</text></svg>">
 <style>
   :root {
     --bg: #0f1115;
@@ -825,9 +826,12 @@ async function tryLoadRemote(zips, filter, label, notify) {
     if (notify) toast(`✅ 已就绪 ${filtered.length} 张 · 按需加载（浏览到哪张取哪张）`);
     return filtered;
   } catch (e) {
-    REMOTE_OK = false;
-    updateDlLabel();
-    toast('按需读取不可用（' + e.message + '），改用整包下载', true);
+    // 结构性错误（zip64 / 目录损坏）才永久关闭按需；网络抖动保留，下次再试
+    if (/zip64|目录定位失败/.test(e.message)) {
+      REMOTE_OK = false;
+      updateDlLabel();
+    }
+    toast('按需读取不可用（' + e.message + '），本次改用整包下载', true);
     return null;
   } finally {
     BUSY = false;
