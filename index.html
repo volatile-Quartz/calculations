@@ -200,7 +200,7 @@
 
 <div class="app">
   <h1>📐 草稿纸查看器</h1>
-  <div class="subtitle" id="subtitle">按编号段选择 · 按需下载 · 高清查看</div>
+  <div class="subtitle" id="subtitle">按编号段 / 月份选择 · 按需下载 · 高清查看</div>
 
   <!-- 控制面板 -->
   <div class="control">
@@ -209,6 +209,13 @@
       <select id="zip-select"></select>
     </div>
     <button id="dl-btn" class="btn">📥 下载并查看</button>
+    <div class="ctrl-group">
+      <div class="ctrl-label">按月份查看</div>
+      <div style="display:flex;gap:8px;">
+        <select id="month-select"></select>
+        <button id="month-btn" class="btn btn-secondary" title="列出该月内所有图片（跨包自动串联）">查看</button>
+      </div>
+    </div>
     <div id="progress-wrap">
       <div id="progress-bar"><div id="progress-fill"></div></div>
       <div id="progress-text">0 / 0</div>
@@ -267,6 +274,7 @@ const OVERSCAN_ROWS = 2;      // 视口外多渲染几行，滚动更顺滑
 
 // ===== 全局状态 =====
 let INDEX = null;
+let CALENDAR = [];            // 月份 → 编号区间（calendar.json）
 let CURRENT_LIST = [];        // 当前网格/放大层展示的图片：{num, name, url, zipName}
 let CURRENT_ZIP = null;       // 下拉框对应的包（仅用于展示）
 let LB_IDX = 0;               // 放大层当前索引
@@ -296,9 +304,16 @@ function toast(msg, isError = false, duration = 5000) {
 // ===== 加载索引 =====
 async function loadIndex() {
   try {
-    const resp = await fetch('index.json');
-    INDEX = await resp.json();
+    const [idxResp, calResp] = await Promise.all([
+      fetch('index.json'),
+      fetch('calendar.json').catch(() => null),
+    ]);
+    INDEX = await idxResp.json();
+    if (calResp && calResp.ok) {
+      try { CALENDAR = (await calResp.json()).months || []; } catch (e) { CALENDAR = []; }
+    }
     populateZips();
+    populateMonths();
   } catch (e) {
     toast('加载索引失败: ' + e.message, true, 0);
   }
@@ -333,7 +348,7 @@ function populateZips() {
   // 副标题：全库编号范围
   const sub = document.getElementById('subtitle');
   if (INDEX.range_min != null) {
-    sub.textContent = `按编号段选择 · 按需下载 · 高清查看 · No.${INDEX.range_min} - No.${INDEX.range_max} · 共 ${INDEX.total_count ?? '?'} 张`;
+    sub.textContent = `按编号段 / 月份选择 · 按需下载 · 高清查看 · No.${INDEX.range_min} - No.${INDEX.range_max} · 共 ${INDEX.total_count ?? '?'} 张`;
   }
 
   // 输入框提示
@@ -342,6 +357,54 @@ function populateZips() {
     const mid = Math.round((INDEX.range_min + INDEX.range_max) / 2);
     ji.placeholder = `如 ${mid} 或 ${mid}-${mid + 100}`;
   }
+}
+
+// ===== 月份查看 =====
+// 月份下拉：按年分组（数据来自 calendar.json；一个月份可对应多段编号区间）
+function populateMonths() {
+  const sel = document.getElementById('month-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  let group = null;
+  for (const m of CALENDAR) {
+    const ym = String(m.label || '').match(/^(\d{4})/);
+    const gname = ym ? ym[1] : '早期';
+    if (!group || group.label !== gname) {
+      group = document.createElement('optgroup');
+      group.label = gname;
+      sel.appendChild(group);
+    }
+    const cnt = (m.ranges || []).reduce((s, r) => s + Math.max(0, r[1] - r[0] + 1), 0);
+    const opt = document.createElement('option');
+    opt.value = m.label;
+    opt.textContent = cnt > 0 ? `${m.label} · ${cnt} 张` : `${m.label}（无）`;
+    if (m.note) opt.title = m.note;
+    group.appendChild(opt);
+  }
+  if (sel.options.length) sel.selectedIndex = sel.options.length - 1;  // 默认最近月份
+}
+
+// 按月份查看：月份 → 编号区间（可多段）→ 串联覆盖的包 → 过滤显示
+async function viewMonth() {
+  if (!INDEX) return;
+  const label = document.getElementById('month-select').value;
+  const m = CALENDAR.find(x => x.label === label);
+  if (!m) return;
+  const ranges = (m.ranges || []).filter(r => r[1] >= r[0]);
+  if (!ranges.length) return toast(`${label} 这段时间没有草稿`, true);
+
+  const covering = INDEX.zips.filter(z => z.range &&
+    ranges.some(r => z.range[1] >= r[0] && z.range[0] <= r[1]));
+  if (!covering.length) return toast(`${label} 的编号段尚未收录`, true);
+
+  const estMB = covering.reduce((s, z) => s + (z.size_mb || 0), 0);
+  if (estMB > 900 && !window.confirm(
+    `${label} 需要下载 ${covering.length} 个包，合计约 ${Math.round(estMB)} MB。继续？`
+  )) return;
+
+  document.getElementById('zip-select').value = covering[0].zip_name;
+  CURRENT_ZIP = covering[0];
+  await loadSelection(covering, ranges, label);
 }
 
 // ===== 下载 + 解压（带 LRU 缓存） =====
@@ -379,7 +442,7 @@ function updateProgress() {
 }
 
 function setControlsDisabled(d) {
-  for (const id of ['dl-btn', 'jump-btn', 'range-btn']) {
+  for (const id of ['dl-btn', 'jump-btn', 'range-btn', 'month-btn']) {
     const el = document.getElementById(id);
     if (el) el.disabled = d;
   }
@@ -500,7 +563,7 @@ async function loadSelection(zips, filter, label, notify = true) {
     all.sort((a, b) => a.num - b.num);
 
     let list = all;
-    if (filter) list = all.filter(f => f.num >= filter[0] && f.num <= filter[1]);
+    if (filter) list = all.filter(f => filter.some(r => f.num >= r[0] && f.num <= r[1]));
     if (!list.length) { toast('该范围内没有图片', true); return null; }
 
     renderGrid(list);
@@ -904,6 +967,7 @@ document.getElementById('zip-select').addEventListener('change', (e) => {
 
 document.getElementById('jump-btn').addEventListener('click', jumpToNumber);
 document.getElementById('range-btn').addEventListener('click', browseRange);
+document.getElementById('month-btn').addEventListener('click', viewMonth);
 document.getElementById('jump-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') jumpToNumber();
 });
@@ -976,7 +1040,7 @@ async function browseRange() {
 
   document.getElementById('zip-select').value = covering[0].zip_name;
   CURRENT_ZIP = covering[0];
-  await loadSelection(covering, [lo, hi], `范围 No.${lo}–${hi}`);
+  await loadSelection(covering, [[lo, hi]], `范围 No.${lo}–${hi}`);
 }
 
 // 启动
