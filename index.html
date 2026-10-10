@@ -1392,6 +1392,20 @@ function openNearest(list, val) {
   openLightbox(idx);
 }
 
+// 按需模式下单图定位：只取包目录（几 KB）→ 定位编号（缺失取最近）→ 返回单张列表
+async function singleRemote(zip, val) {
+  const entries = (await remoteDir(zip)).slice().sort((a, b) => a.num - b.num);
+  if (!entries.length) { toast('这个包里没有图片', true); return null; }
+  let idx = entries.findIndex(e => e.num === val);
+  if (idx < 0) {
+    idx = entries.findIndex(e => e.num > val);
+    if (idx < 0) idx = entries.length - 1;
+    toast(`No.${p3(val)} 不存在，已定位到最近的 No.${p3(entries[idx].num)}`);
+  }
+  const e = entries[idx];
+  return [{ num: e.num, name: e.name, zipName: zip.zip_name, zip, url: null, promise: null }];
+}
+
 // 编号直达：单个编号 → 找到所在包 → 打开对应图片
 async function jumpToNumber() {
   if (!INDEX) return;
@@ -1408,8 +1422,22 @@ async function jumpToNumber() {
   const inCur = CURRENT_LIST.findIndex(f => f.num === val);
   if (inCur >= 0) return openLightbox(inCur);
 
+  // 按需模式：目录级定位，页面上只展示这一张；失败则回退整包
+  const showSingle = async (zip, target) => {
+    if (!REMOTE_OK) return false;
+    try {
+      const list = await singleRemote(zip, target);
+      if (list) { renderGrid(list); openLightbox(0); }
+      return true;
+    } catch (e) {
+      console.warn('[按需单图定位失败]', (e && e.message) || e, '→ 回退整包');
+      return false;
+    }
+  };
+
   const owner = INDEX.zips.find(z => z.range && val >= z.range[0] && val <= z.range[1]);
   if (owner) {
+    if (await showSingle(owner, val)) return;
     if (!ZIP_CACHE.has(owner.zip_name)) toast(`No.${p3(val)} 在 ${owner.label}，开始下载...`);
     const list = await loadSelection([owner], null, owner.label, false);
     if (list) openNearest(list, val);
@@ -1422,6 +1450,7 @@ async function jumpToNumber() {
     .sort((a, b) => a.range[0] - b.range[0])[0];
   if (!next) return toast(`No.${p3(val)} 未收录`, true);
   toast(`No.${p3(val)} 未收录，已跳到最近的 No.${p3(next.range[0])}`);
+  if (await showSingle(next, next.range[0])) return;
   const list = await loadSelection([next], null, next.label, false);
   if (list) openNearest(list, next.range[0]);
 }
