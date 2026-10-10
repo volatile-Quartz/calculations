@@ -238,6 +238,9 @@
 
   <!-- 虚拟滚动缩略图网格 -->
   <div id="grid"></div>
+
+  <!-- 分批加载状态 -->
+  <div id="grid-more" style="display:none; text-align:center; color:var(--text-dim); padding:6px 0 30px; font-size:13px;"></div>
 </div>
 
 <!-- 通知条 -->
@@ -288,6 +291,8 @@ const ZIP_INFLIGHT = new Map(); // 正在下载中的包，避免重复请求
 let PROTECTED = new Set();    // 正在批量加载的包（防止被 LRU 淘汰）
 let BUSY = false;             // 加载互斥
 let LOAD = null;              // 进度聚合状态
+let INC = null;               // 分批加载会话（大范围浏览）
+let INC_GEN = 0;              // 会话代次：切换目标时作废旧批次
 
 // ===== 通知条 =====
 let toastTimer = null;
@@ -339,7 +344,7 @@ function populateZips() {
     const rng = z.range ? `No.${p3(z.range[0])}–${p3(z.range[1])}` : '编号未知';
     let prefix = z.label || '';
     if (prefix === rng) prefix = '';        // label 与 rng 相同时不重复展示
-    // 编号分卷命名（如 scratch_0000-0099）不解析年月；仅旧月份命名的包显示年月
+    // 编号分卷命名（如 scratch_00000-00099）不解析年月；仅旧月份命名的包显示年月
     const isNumbered = /\d{3,6}\s*-\s*\d{3,6}/.test(z.zip_name);
     const mm = isNumbered ? null : z.zip_name.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])/);
     if (mm) prefix = `${mm[1]}-${mm[2]}`;
@@ -539,32 +544,40 @@ function evictCache() {
   }
 }
 
-// 加载一组包（range 模式支持编号过滤），结束后渲染网格
-async function loadSelection(zips, filter, label, notify = true) {
-  if (BUSY) { toast('正在加载中，请稍候…', true); return null; }
-  BUSY = true;
-  setControlsDisabled(true);
-  PROTECTED = new Set(zips.map(z => z.zip_name));
+// 下载一组包（带进度条，串行），返回合并后的文件列表
+async function downloadZips(zips) {
   LOAD = {
     idx: 0, count: zips.length, stage: '下载',
     cur: 0, curTotal: 0, zipBytes: 0, doneBytes: 0,
     totalBytes: Math.max(1, zips.reduce((s, z) => s + (z.size_mb || 0) * 1048576, 0)),
   };
   showProgress();
+  const out = [];
+  for (const z of zips) {
+    LOAD.idx++;
+    LOAD.stage = '下载'; LOAD.cur = 0;
+    LOAD.zipBytes = (z.size_mb || 0) * 1048576;
+    LOAD.curTotal = LOAD.zipBytes;
+    updateProgress();
+    const entry = await ensureZip(z);
+    LOAD.doneBytes += LOAD.zipBytes;
+    updateProgress();
+    out.push(...entry.files);
+  }
+  return out;
+}
 
+// 加载一组包（range 模式支持编号过滤）；多卷走分批加载
+async function loadSelection(zips, filter, label, notify = true) {
+  if (BUSY) { toast('正在加载中，请稍候…', true); return null; }
+  cancelIncremental();                       // 任何新选择都作废旧的分批会话
+  if (zips.length >= 2) return startIncremental(zips, filter, label, notify);
+
+  BUSY = true;
+  setControlsDisabled(true);
+  PROTECTED = new Set(zips.map(z => z.zip_name));
   try {
-    const all = [];
-    for (const z of zips) {
-      LOAD.idx++;
-      LOAD.stage = '下载'; LOAD.cur = 0;
-      LOAD.zipBytes = (z.size_mb || 0) * 1048576;
-      LOAD.curTotal = LOAD.zipBytes;
-      updateProgress();
-      const entry = await ensureZip(z);
-      LOAD.doneBytes += LOAD.zipBytes;
-      updateProgress();
-      all.push(...entry.files);
-    }
+    const all = await downloadZips(zips);
     all.sort((a, b) => a.num - b.num);
 
     let list = all;
@@ -584,6 +597,93 @@ async function loadSelection(zips, filter, label, notify = true) {
     PROTECTED = new Set();
     LOAD = null;
   }
+}
+
+// ===== 分批加载（大范围浏览）=====
+// 跨多卷时：先加载首批立刻显示，页面滚动接近底部时自动加载下一批
+const INC_BATCH = 1;           // 每批加载的包数
+const INC_TRIGGER_PX = 1200;   // 距页面底部多少像素内触发下一批
+
+function cancelIncremental() {
+  INC_GEN++;
+  INC = null;
+  const el = document.getElementById('grid-more');
+  if (el) el.style.display = 'none';
+}
+
+function setMoreText(text) {
+  const el = document.getElementById('grid-more');
+  if (el) { el.style.display = 'block'; el.textContent = text; }
+}
+
+function updateMore(state) {
+  if (state.error) return setMoreText(`— 加载中断（已完成 ${state.list.length} 张）—`);
+  if (state.done) return setMoreText(`— 已全部加载（共 ${state.list.length} 张）—`);
+  setMoreText(`已加载 ${state.list.length} 张 · 还剩 ${state.zips.length - state.idx} 卷 — 继续下滑自动加载`);
+}
+
+async function startIncremental(zips, filter, label, notify) {
+  cancelIncremental();
+  const state = { gen: ++INC_GEN, zips, filter, label, notify, idx: 0, all: [], list: [], done: false, busy: false, error: false, rendered: false };
+  INC = state;
+  PROTECTED = new Set(zips.map(z => z.zip_name));
+  await loadNextBatch();
+  return state.list;
+}
+
+async function loadNextBatch() {
+  const state = INC;
+  if (!state || state.done || state.busy) return;
+  state.busy = true;
+  BUSY = true;
+  setControlsDisabled(true);
+  if (state.idx > 0) setMoreText('正在加载更多…');
+
+  const slice = state.zips.slice(state.idx, state.idx + INC_BATCH);
+  try {
+    const files = await downloadZips(slice);
+    state.idx += slice.length;
+    state.all.push(...files);
+    state.all.sort((a, b) => a.num - b.num);
+    state.list = state.filter
+      ? state.all.filter(f => state.filter.some(r => f.num >= r[0] && f.num <= r[1]))
+      : state.all;
+    if (state.gen !== INC_GEN) return;               // 会话已被切走，放弃渲染
+    state.done = state.idx >= state.zips.length;
+
+    if (state.list.length) {
+      renderGrid(state.list, state.rendered);        // 首批清空重建，后续追加不闪
+      state.rendered = true;
+    }
+    if (state.done) {
+      if (!state.list.length) toast('该范围内没有图片', true);
+      else if (state.notify) toast(`✅ 已全部加载 ${state.list.length} 张（${state.label}）`);
+    }
+    updateMore(state);
+  } catch (e) {
+    state.error = true;                              // 出错即停，避免自动重试死循环
+    state.done = true;
+    if (state.gen === INC_GEN) {
+      toast('加载失败: ' + e.message + '（已加载部分保留）', true);
+      updateMore(state);
+    }
+  } finally {
+    state.busy = false;
+    if (state.gen === INC_GEN) {
+      BUSY = false;
+      setControlsDisabled(false);
+      hideProgress();
+      LOAD = null;
+    }
+  }
+  checkAndLoadMore();                                // 若仍在底部，继续加载
+}
+
+// 滚动接近底部（或首屏未占满）时加载下一批
+function checkAndLoadMore() {
+  const state = INC;
+  if (!state || state.done || state.busy || BUSY) return;
+  if (window.scrollY + window.innerHeight >= document.body.offsetHeight - INC_TRIGGER_PX) loadNextBatch();
 }
 
 // ===== 虚拟滚动网格 =====
@@ -679,7 +779,7 @@ function clearGrid() {
   VG.live.clear();
 }
 
-function renderGrid(list) {
+function renderGrid(list, keep = false) {
   CURRENT_LIST = list;
   LB_IMAGES = list;
 
@@ -690,7 +790,7 @@ function renderGrid(list) {
   document.getElementById('grid-range').textContent = disp.length
     ? `No.${p3(disp[0].num)} - No.${p3(disp[disp.length - 1].num)}` : '';
 
-  clearGrid();
+  if (!keep) clearGrid();
   computeLayout();
   updateVirtual();
   // 首帧后再校准一次（此时布局已稳定）
@@ -707,7 +807,7 @@ document.getElementById('grid').addEventListener('click', (e) => {
 window.addEventListener('scroll', () => {
   if (gridScrollScheduled) return;
   gridScrollScheduled = true;
-  requestAnimationFrame(() => { gridScrollScheduled = false; updateVirtual(); });
+  requestAnimationFrame(() => { gridScrollScheduled = false; updateVirtual(); checkAndLoadMore(); });
 }, { passive: true });
 
 window.addEventListener('resize', () => {

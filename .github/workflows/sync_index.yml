@@ -143,7 +143,7 @@ jobs:
                     except Exception as e:
                         print(f"   ⚠️ 扫描失败 {name}: {e}")
 
-                # 兜底：文件名里自带编号区间（如 scratch_0000-0099.zip）
+                # 兜底：文件名里自带编号区间（如 scratch_00000-00099.zip）
                 if rng is None:
                     m = RANGE_IN_NAME.search(name)
                     if m:
