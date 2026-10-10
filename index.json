@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-10T03:41:36Z",
+  "generated_at": "2026-10-10T07:44:02Z",
   "repo": "volatile-Quartz/scratch-paper-archive",
   "range_min": 0,
   "range_max": 999,
@@ -8,6 +8,7 @@
     {
       "zip_name": "sp_000-099.zip",
       "asset_id": "626899497",
+      "size": 260313712,
       "size_mb": 248.3,
       "uploaded": "2026-10-10T03:32:37Z",
       "label": "No.0–99",
@@ -17,12 +18,13 @@
         99
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_000-099.zip"
     },
     {
       "zip_name": "sp_100-199.zip",
       "asset_id": "626900014",
+      "size": 180610280,
       "size_mb": 172.2,
       "uploaded": "2026-10-10T03:32:53Z",
       "label": "No.100–199",
@@ -32,12 +34,13 @@
         199
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_100-199.zip"
     },
     {
       "zip_name": "sp_200-299.zip",
       "asset_id": "626900466",
+      "size": 307331319,
       "size_mb": 293.1,
       "uploaded": "2026-10-10T03:33:17Z",
       "label": "No.200–299",
@@ -47,12 +50,13 @@
         299
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_200-299.zip"
     },
     {
       "zip_name": "sp_300-399.zip",
       "asset_id": "626901228",
+      "size": 261816985,
       "size_mb": 249.7,
       "uploaded": "2026-10-10T03:33:40Z",
       "label": "No.300–399",
@@ -62,12 +66,13 @@
         399
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_300-399.zip"
     },
     {
       "zip_name": "sp_400-499.zip",
       "asset_id": "626901756",
+      "size": 28777859,
       "size_mb": 27.4,
       "uploaded": "2026-10-10T03:33:44Z",
       "label": "No.400–499",
@@ -77,12 +82,13 @@
         499
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_400-499.zip"
     },
     {
       "zip_name": "sp_500-599.zip",
       "asset_id": "626902013",
+      "size": 47496038,
       "size_mb": 45.3,
       "uploaded": "2026-10-10T03:33:56Z",
       "label": "No.500–599",
@@ -92,12 +98,13 @@
         599
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_500-599.zip"
     },
     {
       "zip_name": "sp_600-699.zip",
       "asset_id": "626902140",
+      "size": 75101709,
       "size_mb": 71.6,
       "uploaded": "2026-10-10T03:34:04Z",
       "label": "No.600–699",
@@ -107,12 +114,13 @@
         699
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_600-699.zip"
     },
     {
       "zip_name": "sp_700-799.zip",
       "asset_id": "626902352",
+      "size": 48570834,
       "size_mb": 46.3,
       "uploaded": "2026-10-10T03:34:09Z",
       "label": "No.700–799",
@@ -122,12 +130,13 @@
         799
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_700-799.zip"
     },
     {
       "zip_name": "sp_800-899.zip",
       "asset_id": "626902487",
+      "size": 110222023,
       "size_mb": 105.1,
       "uploaded": "2026-10-10T03:34:19Z",
       "label": "No.800–899",
@@ -137,12 +146,13 @@
         899
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_800-899.zip"
     },
     {
       "zip_name": "sp_900-999.zip",
       "asset_id": "626902724",
+      "size": 149750576,
       "size_mb": 142.8,
       "uploaded": "2026-10-10T03:34:31Z",
       "label": "No.900–999",
@@ -152,7 +162,7 @@
         999
       ],
       "count": 100,
-      "range_source": "scan",
+      "range_source": "cache",
       "browser_url": "https://github.com/volatile-Quartz/scratch-paper-archive/releases/download/sp-archive-000-999/sp_900-999.zip"
     }
   ]
