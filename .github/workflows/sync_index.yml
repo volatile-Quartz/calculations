@@ -24,6 +24,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
+        ref: main            # release 事件触发时默认停在 tag（detached HEAD），会无法 push
         fetch-depth: 1
 
     - name: Generate index.json
@@ -203,4 +204,4 @@ jobs:
           exit 0
         fi
         git commit -m "chore: update index.json"
-        git push
+        git push origin HEAD:main
